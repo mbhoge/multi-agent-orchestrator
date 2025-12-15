@@ -1,0 +1,117 @@
+version: '3.8'
+
+# Production-like Docker Compose configuration
+# This extends docker-compose.yml with production settings
+
+services:
+  aws-agent-core:
+    build:
+      context: .
+      dockerfile: docker/aws-agent-core/Dockerfile
+    container_name: aws-agent-core-prod
+    environment:
+      - AWS_REGION=${AWS_REGION}
+      - LANGGRAPH_ENDPOINT=http://langgraph:8001
+      - LOG_LEVEL=INFO
+      - DEBUG=false
+    env_file:
+      - .env.prod
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  langgraph:
+    build:
+      context: .
+      dockerfile: docker/langgraph/Dockerfile
+    container_name: langgraph-supervisor-prod
+    environment:
+      - LANGFUSE_HOST=http://langfuse:3000
+      - LOG_LEVEL=INFO
+      - DEBUG=false
+    env_file:
+      - .env.prod
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  snowflake-cortex:
+    build:
+      context: .
+      dockerfile: docker/snowflake-cortex/Dockerfile
+    container_name: snowflake-cortex-agent-prod
+    environment:
+      - LOG_LEVEL=INFO
+      - DEBUG=false
+    env_file:
+      - .env.prod
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  langfuse:
+    build:
+      context: .
+      dockerfile: docker/langfuse/Dockerfile
+    container_name: langfuse-prod
+    environment:
+      - DATABASE_URL=${LANGFUSE_DATABASE_URL}
+    env_file:
+      - .env.prod
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+    restart: always
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: langfuse-postgres-prod
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+    restart: always
+

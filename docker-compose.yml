@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  aws-agent-core:
+    build:
+      context: .
+      dockerfile: docker/aws-agent-core/Dockerfile
+    container_name: aws-agent-core
+    ports:
+      - "8000:8000"
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - LANGGRAPH_ENDPOINT=http://langgraph:8001
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    env_file:
+      - .env
+    depends_on:
+      - langgraph
+    networks:
+      - orchestrator-network
+    restart: unless-stopped
+
+  langgraph:
+    build:
+      context: .
+      dockerfile: docker/langgraph/Dockerfile
+    container_name: langgraph-supervisor
+    ports:
+      - "8001:8001"
+    environment:
+      - LANGFUSE_HOST=http://langfuse:3000
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_PROJECT_ID=${LANGFUSE_PROJECT_ID}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    env_file:
+      - .env
+    depends_on:
+      - langfuse
+      - snowflake-cortex
+    networks:
+      - orchestrator-network
+    restart: unless-stopped
+
+  snowflake-cortex:
+    build:
+      context: .
+      dockerfile: docker/snowflake-cortex/Dockerfile
+    container_name: snowflake-cortex-agent
+    ports:
+      - "8002:8002"
+    environment:
+      - SNOWFLAKE_ACCOUNT=${SNOWFLAKE_ACCOUNT}
+      - SNOWFLAKE_USER=${SNOWFLAKE_USER}
+      - SNOWFLAKE_PASSWORD=${SNOWFLAKE_PASSWORD}
+      - SNOWFLAKE_WAREHOUSE=${SNOWFLAKE_WAREHOUSE}
+      - SNOWFLAKE_DATABASE=${SNOWFLAKE_DATABASE}
+      - SNOWFLAKE_SCHEMA=${SNOWFLAKE_SCHEMA:-PUBLIC}
+      - TRULENS_ENABLED=${TRULENS_ENABLED:-true}
+      - TRULENS_APP_ID=${TRULENS_APP_ID}
+      - TRULENS_API_KEY=${TRULENS_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    env_file:
+      - .env
+    networks:
+      - orchestrator-network
+    restart: unless-stopped
+
+  langfuse:
+    build:
+      context: .
+      dockerfile: docker/langfuse/Dockerfile
+    container_name: langfuse
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${LANGFUSE_DATABASE_URL:-postgresql://langfuse:langfuse@postgres:5432/langfuse}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    networks:
+      - orchestrator-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: langfuse-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-langfuse}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-langfuse}
+      - POSTGRES_DB=${POSTGRES_DB:-langfuse}
+    volumes:
+      - langfuse-db-data:/var/lib/postgresql/data
+    networks:
+      - orchestrator-network
+    restart: unless-stopped
+
+networks:
+  orchestrator-network:
+    driver: bridge
+
+volumes:
+  langfuse-db-data:
+

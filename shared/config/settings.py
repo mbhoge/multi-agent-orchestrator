@@ -1,0 +1,110 @@
+"""Application settings using Pydantic for validation."""
+
+from pydantic_settings import BaseSettings
+from pydantic import Field
+from typing import Optional
+
+
+class AWSSettings(BaseSettings):
+    """AWS configuration settings."""
+    
+    aws_region: str = Field(default="us-east-1", description="AWS region")
+    aws_access_key_id: Optional[str] = Field(default=None, description="AWS access key ID")
+    aws_secret_access_key: Optional[str] = Field(default=None, description="AWS secret access key")
+    aws_session_token: Optional[str] = Field(default=None, description="AWS session token")
+    bedrock_agent_core_runtime_endpoint: Optional[str] = Field(
+        default=None, 
+        description="AWS Bedrock Agent Core Runtime endpoint"
+    )
+    
+    class Config:
+        env_prefix = "AWS_"
+        case_sensitive = False
+
+
+class LangGraphSettings(BaseSettings):
+    """LangGraph configuration settings."""
+    
+    langgraph_endpoint: str = Field(
+        default="http://langgraph:8001",
+        description="LangGraph service endpoint"
+    )
+    langgraph_timeout: int = Field(default=300, description="Request timeout in seconds")
+    enable_memory: bool = Field(default=True, description="Enable memory management")
+    
+    class Config:
+        env_prefix = "LANGGRAPH_"
+        case_sensitive = False
+
+
+class LangfuseSettings(BaseSettings):
+    """Langfuse observability settings."""
+    
+    langfuse_host: str = Field(
+        default="http://langfuse:3000",
+        description="Langfuse host URL"
+    )
+    langfuse_public_key: Optional[str] = Field(default=None, description="Langfuse public key")
+    langfuse_secret_key: Optional[str] = Field(default=None, description="Langfuse secret key")
+    langfuse_project_id: Optional[str] = Field(default=None, description="Langfuse project ID")
+    
+    class Config:
+        env_prefix = "LANGFUSE_"
+        case_sensitive = False
+
+
+class SnowflakeSettings(BaseSettings):
+    """Snowflake configuration settings."""
+    
+    snowflake_account: Optional[str] = Field(default=None, description="Snowflake account identifier")
+    snowflake_user: Optional[str] = Field(default=None, description="Snowflake username")
+    snowflake_password: Optional[str] = Field(default=None, description="Snowflake password")
+    snowflake_warehouse: Optional[str] = Field(default=None, description="Snowflake warehouse")
+    snowflake_database: Optional[str] = Field(default=None, description="Snowflake database")
+    snowflake_schema: str = Field(default="PUBLIC", description="Snowflake schema")
+    snowflake_role: Optional[str] = Field(default=None, description="Snowflake role")
+    cortex_agent_gateway_endpoint: Optional[str] = Field(
+        default="http://snowflake-cortex:8002",
+        description="Snowflake Cortex AI Agent Gateway endpoint"
+    )
+    
+    class Config:
+        env_prefix = "SNOWFLAKE_"
+        case_sensitive = False
+
+
+class TruLensSettings(BaseSettings):
+    """TruLens observability settings."""
+    
+    trulens_enabled: bool = Field(default=True, description="Enable TruLens observability")
+    trulens_app_id: Optional[str] = Field(default=None, description="TruLens app ID")
+    trulens_api_key: Optional[str] = Field(default=None, description="TruLens API key")
+    
+    class Config:
+        env_prefix = "TRULENS_"
+        case_sensitive = False
+
+
+class AppSettings(BaseSettings):
+    """Main application settings."""
+    
+    app_name: str = Field(default="multi-agent-orchestrator", description="Application name")
+    app_version: str = Field(default="1.0.0", description="Application version")
+    debug: bool = Field(default=False, description="Debug mode")
+    log_level: str = Field(default="INFO", description="Logging level")
+    
+    aws: AWSSettings = Field(default_factory=AWSSettings)
+    langgraph: LangGraphSettings = Field(default_factory=LangGraphSettings)
+    langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
+    snowflake: SnowflakeSettings = Field(default_factory=SnowflakeSettings)
+    trulens: TruLensSettings = Field(default_factory=TruLensSettings)
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = False
+
+
+# Global settings instance
+settings = AppSettings()
+

@@ -1,0 +1,34 @@
+# Core dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.0
+
+# AWS SDK
+boto3==1.29.7
+botocore==1.32.7
+
+# HTTP client
+httpx==0.25.2
+
+# LangGraph (when available, using placeholder)
+# langgraph==0.0.1  # Update when official package is available
+
+# Langfuse
+langfuse==2.0.0
+
+# Snowflake
+snowflake-connector-python==3.7.0
+snowflake-snowpark-python==1.9.0
+
+# TruLens
+trulens-eval==0.18.0
+
+# Utilities
+pyyaml==6.0.1
+python-multipart==0.0.6
+
+# Logging
+structlog==23.2.0
+

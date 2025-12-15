@@ -1,0 +1,36 @@
+# Agent Configuration
+# This file defines multiple Snowflake Cortex AI agents
+
+agents:
+  - name: cortex_analyst
+    type: cortex_analyst
+    description: "Cortex AI Analyst for structured data queries"
+    enabled: true
+    semantic_model: "default_semantic_model"
+    config:
+      max_query_timeout: 300
+      enable_caching: true
+  
+  - name: cortex_search
+    type: cortex_search
+    description: "Cortex AI Search for unstructured data queries"
+    enabled: true
+    config:
+      default_stage_path: "@my_stage"
+      max_results: 10
+      min_relevance_score: 0.5
+  
+  - name: cortex_combined
+    type: cortex_combined
+    description: "Combined agent using both Analyst and Search"
+    enabled: true
+    config:
+      use_analyst_first: true
+      combine_results: true
+
+semantic_models:
+  - name: default_semantic_model
+    description: "Default semantic model for SQL generation"
+    location: "snowflake://semantic_models/default.yaml"
+    version: "1.0"
+
