@@ -4,12 +4,17 @@ A containerized multi-agent orchestrator system built with AWS Agent Core, LangG
 
 ## Architecture
 
-The system follows a three-tier architecture:
+The system follows a three-tier architecture with integrated Langfuse prompt management:
 
 ```
 User Request → AWS Agent Core (REST API) → LangGraph Supervisor → Snowflake Cortex AI Agents
                      ↓                           ↓                          ↓
               AWS Observability            Langfuse Container         TruLens Observability
+                     ↓                           ↓                          ↓
+              Prompt: orchestrator_query   Prompt: supervisor_routing  Prompts: cortex_* agents
+                                                      ↓
+                                            Langfuse Prompt Management
+                                            (Centralized & Versioned)
 ```
 
 ### Components
@@ -17,20 +22,25 @@ User Request → AWS Agent Core (REST API) → LangGraph Supervisor → Snowflak
 1. **AWS Agent Core**: Multi-agent orchestrator using AWS Bedrock Agent Core Runtime SDK
    - REST API (FastAPI)
    - Observability and tracing via AWS Agent Core Runtime SDK
+   - **Langfuse prompt management**: Uses `orchestrator_query` prompt
    - Invokes LangGraph for reasoning
 
 2. **LangGraph**: Multi-agent supervisor with state and memory management
    - State management (short-term and long-term memory)
    - Request routing to appropriate Snowflake agents
+   - **Langfuse prompt management**: Uses `supervisor_routing` prompt for routing decisions
    - Langfuse integration for observability
 
 3. **Snowflake Cortex AI Agents**: Specialized agents for data queries
    - **Cortex AI Analyst**: Queries structured data using semantic models (YAML)
    - **Cortex AI Search**: Queries unstructured data (PDFs, PPTs) in Snowflake stages
    - **Agent Gateway**: Routes requests to appropriate agents
+   - **Langfuse prompt management**: Each agent uses specific prompts (`snowflake_cortex_analyst`, `snowflake_cortex_search`, `snowflake_cortex_combined`)
    - TruLens integration for observability
 
-4. **Langfuse**: Separate containerized service for LangGraph observability
+4. **Langfuse**: Separate containerized service providing:
+   - **Observability**: Tracing and monitoring for LangGraph
+   - **Prompt Management**: Centralized prompt storage, versioning, and rendering across all components
 
 ## Project Structure
 
@@ -200,16 +210,50 @@ curl http://localhost:8000/metrics
 - Uses AWS Agent Core Runtime SDK for built-in observability
 - Traces available in AWS CloudWatch
 - Metrics collected via CloudWatch
+- Langfuse prompt management integration
 
 ### LangGraph
 
 - Langfuse integration for tracing and monitoring
+- Langfuse prompt management for routing decisions
 - Access Langfuse UI at http://localhost:3000 (local) or configured endpoint
 
 ### Snowflake Cortex Agents
 
 - TruLens integration for agent evaluation
 - Response quality metrics and feedback
+- Langfuse prompt management for agent-specific prompts
+
+## Prompt Management
+
+The system integrates Langfuse prompt management across all components:
+
+### Available Prompts
+
+- **orchestrator_query**: Used by AWS Agent Core orchestrator
+- **supervisor_routing**: Used by LangGraph supervisor for routing decisions
+- **snowflake_cortex_analyst**: Used by Cortex AI Analyst agent
+- **snowflake_cortex_search**: Used by Cortex AI Search agent
+- **snowflake_cortex_combined**: Used by combined Cortex AI agent
+
+### Managing Prompts
+
+Prompts can be managed through:
+
+1. **Langfuse UI**: Access the Langfuse dashboard to create, update, and version prompts
+2. **API Endpoints**: Use the Snowflake Gateway API endpoints:
+   - `GET /prompts/{prompt_name}` - Get a prompt
+   - `POST /prompts` - Create a new prompt
+
+3. **Configuration**: Default prompts are defined in `config/prompts.yaml`
+
+### Prompt Variables
+
+Prompts support variable substitution using `{variable_name}` syntax. Common variables:
+- `{query}` - User query
+- `{context}` - Context information
+- `{session_id}` - Session identifier
+- `{semantic_model}` - Semantic model information (for analyst)
 
 ## Development
 

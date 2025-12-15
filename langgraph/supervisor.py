@@ -63,9 +63,15 @@ class LangGraphSupervisor:
                 "current_step": "routing"
             })
             
-            # Route request to appropriate agent
-            routing_decision = agent_router.route_request(
+            # Get prompt for routing decision
+            routing_prompt = await self.langfuse_client.get_prompt_for_routing(
                 query=request.query,
+                context=request.context
+            )
+            
+            # Route request to appropriate agent (using prompt-enhanced query)
+            routing_decision = agent_router.route_request(
+                query=routing_prompt,
                 context=request.context,
                 agent_preference=request.agent_preference
             )

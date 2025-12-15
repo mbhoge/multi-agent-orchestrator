@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 import httpx
 from shared.config.settings import LangfuseSettings
 from shared.utils.exceptions import ObservabilityError
+from langfuse.prompt_manager import LangfusePromptManager
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class LangfuseClient:
         self.public_key = langfuse_settings.langfuse_public_key
         self.secret_key = langfuse_settings.langfuse_secret_key
         self.project_id = langfuse_settings.langfuse_project_id
+        self.prompt_manager = LangfusePromptManager(langfuse_settings)
         logger.info(f"Initialized Langfuse client: {self.base_url}")
     
     async def log_supervisor_decision(
@@ -110,4 +112,34 @@ class LangfuseClient:
         except Exception as e:
             logger.error(f"Error logging state update to Langfuse: {str(e)}")
             pass
+    
+    async def get_prompt_for_routing(
+        self,
+        query: str,
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Get and render prompt for routing decision.
+        
+        Args:
+            query: User query
+            context: Optional context information
+        
+        Returns:
+            Rendered prompt string
+        """
+        try:
+            prompt_data = await self.prompt_manager.get_prompt("supervisor_routing")
+            if prompt_data:
+                return self.prompt_manager.render_prompt(
+                    prompt_data["prompt"],
+                    {
+                        "query": query,
+                        "context": str(context or {})
+                    }
+                )
+            return f"Analyze the following query and determine the best agent to handle it: {query}"
+        except Exception as e:
+            logger.warning(f"Error getting routing prompt: {str(e)}")
+            return f"Analyze the following query and determine the best agent to handle it: {query}"
 

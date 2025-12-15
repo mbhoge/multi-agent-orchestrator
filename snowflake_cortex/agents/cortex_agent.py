@@ -9,6 +9,7 @@ from snowflake_cortex.tools.analyst import CortexAnalyst
 from snowflake_cortex.tools.search import CortexSearch
 from snowflake_cortex.observability.trulens_client import TruLensClient
 from shared.config.settings import settings
+from langfuse.prompt_manager import get_prompt_manager
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class CortexAgent(BaseCortexAgent):
         self.analyst = CortexAnalyst()
         self.search = CortexSearch()
         self.trulens_client = TruLensClient(settings.trulens)
+        self.prompt_manager = get_prompt_manager()
         logger.info(f"Initialized Cortex agent with tools: {agent_type.value}")
     
     async def process_query(
@@ -57,28 +59,31 @@ class CortexAgent(BaseCortexAgent):
             
             prepared_context = self.prepare_context(context)
             
+            # Get and apply agent-specific prompt
+            enhanced_query = await self._get_agent_prompt(query, prepared_context)
+            
             # Route to appropriate tool based on agent type
             if self.agent_type == AgentType.CORTEX_ANALYST:
                 result = await self.analyst.analyze_query(
-                    query=query,
+                    query=enhanced_query,
                     session_id=session_id,
                     context=prepared_context
                 )
             elif self.agent_type == AgentType.CORTEX_SEARCH:
                 result = await self.search.search_query(
-                    query=query,
+                    query=enhanced_query,
                     session_id=session_id,
                     context=prepared_context
                 )
             elif self.agent_type == AgentType.CORTEX_COMBINED:
                 # Use both tools and combine results
                 analyst_result = await self.analyst.analyze_query(
-                    query=query,
+                    query=enhanced_query,
                     session_id=session_id,
                     context=prepared_context
                 )
                 search_result = await self.search.search_query(
-                    query=query,
+                    query=enhanced_query,
                     session_id=session_id,
                     context=prepared_context
                 )
@@ -127,4 +132,40 @@ class CortexAgent(BaseCortexAgent):
         combined += f"Unstructured Data Search:\n{search_response}"
         
         return combined
+    
+    async def _get_agent_prompt(
+        self,
+        query: str,
+        context: Dict[str, Any]
+    ) -> str:
+        """
+        Get and render agent-specific prompt from Langfuse.
+        
+        Args:
+            query: Original query
+            context: Context information
+        
+        Returns:
+            Enhanced query with prompt
+        """
+        try:
+            prompt_name = f"snowflake_{self.agent_type.value}"
+            prompt_data = await self.prompt_manager.get_prompt(prompt_name)
+            
+            if prompt_data:
+                return self.prompt_manager.render_prompt(
+                    prompt_data["prompt"],
+                    {
+                        "query": query,
+                        "context": str(context),
+                        "agent_type": self.agent_type.value
+                    }
+                )
+            
+            # Fallback to default prompt
+            return query
+            
+        except Exception as e:
+            logger.warning(f"Error getting agent prompt: {str(e)}")
+            return query
 

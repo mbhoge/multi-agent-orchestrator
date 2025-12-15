@@ -11,6 +11,7 @@ from shared.utils.exceptions import AWSAgentCoreError, LangGraphError
 from aws_agent_core.runtime.sdk_client import AgentCoreRuntimeClient
 from aws_agent_core.observability.tracing import tracer
 from aws_agent_core.observability.metrics import metrics_collector
+from langfuse.prompt_manager import get_prompt_manager
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class MultiAgentOrchestrator:
         self.runtime_client = AgentCoreRuntimeClient(settings.aws)
         self.langgraph_endpoint = settings.langgraph.langgraph_endpoint
         self.langgraph_timeout = settings.langgraph.langgraph_timeout
+        self.prompt_manager = get_prompt_manager()
         logger.info("Initialized Multi-Agent Orchestrator")
     
     async def process_request(
@@ -55,6 +57,14 @@ class MultiAgentOrchestrator:
             try:
                 logger.info(f"Processing request for session {session_id}")
                 metrics_collector.increment_counter("requests.total")
+                
+                # Step 0: Get and apply orchestrator prompt
+                orchestrator_prompt = await self._get_orchestrator_prompt(request)
+                if orchestrator_prompt:
+                    # Enhance request with prompt context
+                    enhanced_query = orchestrator_prompt
+                    request.query = enhanced_query
+                    logger.debug(f"Applied orchestrator prompt for session {session_id}")
                 
                 # Step 1: Invoke LangGraph via AWS Agent Core Runtime SDK
                 # In a real implementation, this would use the actual AWS Agent Core
@@ -150,4 +160,33 @@ class MultiAgentOrchestrator:
         except Exception as e:
             logger.error(f"Error invoking LangGraph: {str(e)}")
             raise LangGraphError(f"LangGraph invocation failed: {str(e)}") from e
+    
+    async def _get_orchestrator_prompt(
+        self,
+        request: AgentRequest
+    ) -> Optional[str]:
+        """
+        Get orchestrator prompt from Langfuse.
+        
+        Args:
+            request: Agent request
+        
+        Returns:
+            Rendered prompt string or None
+        """
+        try:
+            prompt_data = await self.prompt_manager.get_prompt("orchestrator_query")
+            if prompt_data:
+                return self.prompt_manager.render_prompt(
+                    prompt_data["prompt"],
+                    {
+                        "query": request.query,
+                        "session_id": request.session_id or "",
+                        "context": str(request.context or {})
+                    }
+                )
+            return None
+        except Exception as e:
+            logger.warning(f"Error getting orchestrator prompt: {str(e)}")
+            return None
 

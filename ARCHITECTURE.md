@@ -79,11 +79,21 @@ The Multi-Agent Orchestrator follows a **three-tier microservices architecture**
 
 ┌─────────────────────────────────────────────────────────────────┐
 │  Supporting Services                                             │
-│  ┌──────────────────┐  ┌──────────────────┐                 │
-│  │  Langfuse        │  │  PostgreSQL       │                 │
-│  │  (Port 3000)     │  │  (Langfuse DB)    │                 │
-│  │  - Observability │  │  - State storage  │                 │
-│  └──────────────────┘  └──────────────────┘                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Langfuse (Port 3000)                                    │  │
+│  │  ┌────────────────────┐  ┌────────────────────┐        │  │
+│  │  │  Observability    │  │  Prompt Management  │        │  │
+│  │  │  - Tracing         │  │  - Prompt Store    │        │  │
+│  │  │  - Monitoring      │  │  - Version Control │        │  │
+│  │  │  - Logging         │  │  - Template Render │        │  │
+│  │  └────────────────────┘  └────────────────────┘        │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│  ┌──────────────────┐                                         │
+│  │  PostgreSQL      │                                         │
+│  │  (Langfuse DB)   │                                         │
+│  │  - State storage │                                         │
+│  │  - Prompt data   │                                         │
+│  └──────────────────┘                                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -94,18 +104,30 @@ The Multi-Agent Orchestrator follows a **three-tier microservices architecture**
    - REST API layer using FastAPI
    - Orchestrates the entire flow
    - AWS Bedrock Agent Core Runtime SDK integration
+   - **Langfuse Prompt Management**: Uses `orchestrator_query` prompt to enhance queries
    - Observability: AWS CloudWatch tracing & metrics
 
 2. **LangGraph Supervisor (Tier 2)**
    - Multi-agent coordination and state management
    - Intelligent routing based on query analysis
    - Memory management (session-based and persistent)
-   - Observability: Langfuse integration
+   - **Langfuse Prompt Management**: Uses `supervisor_routing` prompt for routing decisions
+   - Observability: Langfuse integration for tracing and monitoring
 
 3. **Snowflake Cortex Agents (Tier 3)**
    - Specialized agents for different data types
    - Direct Snowflake integration
+   - **Langfuse Prompt Management**: Each agent type uses specific prompts:
+     - `snowflake_cortex_analyst` for Analyst agent
+     - `snowflake_cortex_search` for Search agent
+     - `snowflake_cortex_combined` for Combined agent
    - Observability: TruLens integration
+
+4. **Langfuse Prompt Management (Cross-cutting)**
+   - Centralized prompt storage and versioning
+   - Prompt template rendering with variable substitution
+   - Prompt caching for performance
+   - Integration across all tiers for consistent prompt usage
 
 ---
 
@@ -125,6 +147,9 @@ User Request
     ├─→ Creates session_id
     ├─→ Starts AWS tracing
     ├─→ Records metrics
+    ├─→ **Gets orchestrator_query prompt from Langfuse**
+    ├─→ **Renders prompt with query, session_id, context**
+    ├─→ **Enhances request query with prompt**
     │
     ▼
 [HTTP POST] → LangGraph Supervisor (/supervisor/process)
@@ -133,7 +158,9 @@ User Request
 [LangGraphSupervisor.process_request()]
     │
     ├─→ StateManager: Get/Create state
-    ├─→ AgentRouter: Analyze & route query
+    ├─→ **Gets supervisor_routing prompt from Langfuse**
+    ├─→ **Renders routing prompt with query and context**
+    ├─→ AgentRouter: Analyze & route query (using prompt-enhanced query)
     ├─→ ShortTermMemory: Store query & routing
     │
     ▼
@@ -145,9 +172,14 @@ User Request
     ▼
 [CortexAgent.process_query()]
     │
-    ├─→ CortexAnalyst (if structured data)
-    ├─→ CortexSearch (if unstructured data)
-    └─→ Both (if combined)
+    ├─→ **Gets agent-specific prompt from Langfuse**
+    │   (snowflake_cortex_analyst/search/combined)
+    ├─→ **Renders prompt with query, context, agent_type**
+    ├─→ **Uses enhanced query for tool execution**
+    │
+    ├─→ CortexAnalyst (if structured data) - uses prompt-enhanced query
+    ├─→ CortexSearch (if unstructured data) - uses prompt-enhanced query
+    └─→ Both (if combined) - uses prompt-enhanced query
     │
     ▼
 [Response flows back through layers]
@@ -182,6 +214,31 @@ LongTermMemory (Persistent, cross-session)
     ├─→ retrieve() - Get by key
     ├─→ search() - Search patterns
     └─→ delete() - Remove entry
+```
+
+### 4. Prompt Management Flow
+
+```
+LangfusePromptManager
+    │
+    ├─→ get_prompt(name, version, labels) - Fetch prompt with caching
+    ├─→ create_prompt(name, prompt, config, labels) - Create new prompt
+    ├─→ update_prompt(name, prompt, config, labels) - Update existing
+    ├─→ render_prompt(template, variables) - Render with variables
+    └─→ clear_cache(name) - Clear cached prompts
+
+Prompt Usage Flow:
+    │
+    ├─→ AWS Agent Core: orchestrator_query prompt
+    │   └─→ Variables: {query}, {session_id}, {context}
+    │
+    ├─→ LangGraph Supervisor: supervisor_routing prompt
+    │   └─→ Variables: {query}, {context}
+    │
+    └─→ Snowflake Cortex Agents:
+        ├─→ snowflake_cortex_analyst: {query}, {semantic_model}, {context}
+        ├─→ snowflake_cortex_search: {query}, {context}
+        └─→ snowflake_cortex_combined: {query}, {context}
 ```
 
 ---
@@ -273,6 +330,9 @@ Scoring Algorithm:
 │ - Creates/uses session_id                                   │
 │ - Starts trace context                                      │
 │ - Records metrics (requests.total++)                         │
+│ - **Fetches orchestrator_query prompt from Langfuse**      │
+│ - **Renders prompt: {query}, {session_id}, {context}**       │
+│ - **Enhances request.query with rendered prompt**           │
 │ - Transforms to AgentRequest model                          │
 └───────────────────────┬─────────────────────────────────────┘
                         │
@@ -281,7 +341,9 @@ Scoring Algorithm:
 │ 3. LangGraph Supervisor Layer                               │
 │ - Retrieves/creates AgentState                              │
 │ - Updates state: status=PROCESSING                           │
-│ - AgentRouter analyzes query                                │
+│ - **Fetches supervisor_routing prompt from Langfuse**       │
+│ - **Renders routing prompt: {query}, {context}**             │
+│ - AgentRouter analyzes query (using prompt-enhanced query)   │
 │ - Routing decision: {                                        │
 │     "selected_agent": "cortex_analyst",                     │
 │     "routing_reason": "Query appears to be for structured...",│
@@ -296,9 +358,11 @@ Scoring Algorithm:
 │ 4. Snowflake Cortex Agent Layer                             │
 │ - CortexAgentGateway receives request                       │
 │ - Routes to CortexAgent (Analyst type)                      │
-│ - CortexAnalyst tool:                                       │
+│ - **Fetches snowflake_cortex_analyst prompt from Langfuse** │
+│ - **Renders prompt: {query}, {semantic_model}, {context}**  │
+│ - CortexAnalyst tool (using prompt-enhanced query):         │
 │   * Loads semantic model                                    │
-│   * Converts NL to SQL                                      │
+│   * Converts NL to SQL (with prompt context)                │
 │   * Executes SQL in Snowflake                               │
 │   * Formats results                                         │
 │ - TruLens logs execution                                    │
@@ -413,13 +477,14 @@ LANGGRAPH_TIMEOUT=300  # seconds
 LANGGRAPH_ENABLE_MEMORY=true
 ```
 
-**Langfuse Observability:**
+**Langfuse Observability & Prompt Management:**
 ```bash
 LANGFUSE_HOST=http://langfuse:3000
 LANGFUSE_PUBLIC_KEY=pk-...
 LANGFUSE_SECRET_KEY=sk-...
 LANGFUSE_PROJECT_ID=...
 LANGFUSE_DATABASE_URL=postgresql://langfuse:langfuse@postgres:5432/langfuse
+# Note: Prompt management uses the same Langfuse credentials
 ```
 
 **PostgreSQL (for Langfuse):**
@@ -448,7 +513,55 @@ TRULENS_APP_ID=your-app-id
 TRULENS_API_KEY=your-api-key
 ```
 
-### 2. Agent Configuration
+### 2. Prompt Configuration
+
+The system uses Langfuse for prompt management. Default prompts are defined in `config/prompts.yaml`:
+
+```yaml
+prompts:
+  - name: orchestrator_query
+    description: "Prompt for AWS Agent Core orchestrator"
+    default_template: "You are a multi-agent orchestrator. Process the following query: {query}"
+  
+  - name: supervisor_routing
+    description: "Prompt for LangGraph supervisor routing"
+    default_template: "Analyze the following query and determine the best agent: {query}\n\nContext: {context}"
+  
+  - name: snowflake_cortex_analyst
+    description: "Prompt for Cortex AI Analyst"
+    default_template: "Convert the following natural language query to SQL: {query}\n\nSemantic model context: {semantic_model}"
+  
+  - name: snowflake_cortex_search
+    description: "Prompt for Cortex AI Search"
+    default_template: "Search for information related to: {query}\n\nSearch context: {context}"
+  
+  - name: snowflake_cortex_combined
+    description: "Prompt for combined Cortex AI agent"
+    default_template: "Process the following query using both structured and unstructured data: {query}\n\nContext: {context}"
+```
+
+**Managing Prompts:**
+
+1. **Via Langfuse UI**: Access http://localhost:3000 to create, update, and version prompts
+2. **Via API**: Use Snowflake Gateway endpoints:
+   ```bash
+   # Get a prompt
+   curl http://localhost:8002/prompts/supervisor_routing
+   
+   # Create a prompt
+   curl -X POST http://localhost:8002/prompts \
+     -H "Content-Type: application/json" \
+     -d '{
+       "prompt_name": "custom_prompt",
+       "prompt": "Template with {variable}",
+       "config": {},
+       "labels": ["production"]
+     }'
+   ```
+
+3. **Prompt Variables**: All prompts support variable substitution using `{variable_name}` syntax
+
+### 3. Agent Configuration
 
 Edit `config/agents.yaml`:
 
@@ -487,7 +600,7 @@ semantic_models:
     version: "1.0"
 ```
 
-### 3. Setup Steps
+### 4. Setup Steps
 
 #### Step 1: Initial Setup
 ```bash
@@ -545,7 +658,7 @@ curl http://localhost:8002/health
 docker-compose logs -f
 ```
 
-### 4. Testing the System
+### 5. Testing the System
 
 #### Send a Test Query
 ```bash
@@ -574,7 +687,7 @@ curl -X POST http://localhost:8000/api/v1/query \
 }
 ```
 
-### 5. Adding New Agents
+### 6. Adding New Agents
 
 To add a new agent type:
 
@@ -620,7 +733,7 @@ agents = {
 }
 ```
 
-### 6. Customizing Routing
+### 7. Customizing Routing
 
 Edit `langgraph/reasoning/router.py` to customize routing logic:
 
@@ -634,7 +747,7 @@ def _score_my_agent_query(self, query: str) -> float:
     pass
 ```
 
-### 7. Observability Setup
+### 8. Observability Setup
 
 **Langfuse:**
 1. Sign up at https://langfuse.com
@@ -661,8 +774,9 @@ This multi-agent orchestrator provides:
 ✅ **Scalable Architecture**: Three-tier microservices design
 ✅ **Intelligent Routing**: Automatic agent selection based on query analysis
 ✅ **State Management**: Session-based state with memory management
+✅ **Prompt Management**: Centralized Langfuse prompt management across all components
 ✅ **Observability**: Integrated tracing and metrics (AWS, Langfuse, TruLens)
 ✅ **Flexibility**: Easy to add new agents and customize routing
 ✅ **Production Ready**: Docker containerization, health checks, error handling
 
-The system is designed to handle both structured (SQL) and unstructured (document search) queries intelligently, routing each request to the most appropriate agent while maintaining state and observability throughout the process.
+The system is designed to handle both structured (SQL) and unstructured (document search) queries intelligently, routing each request to the most appropriate agent while maintaining state and observability throughout the process. **Langfuse prompt management** enables centralized control and versioning of prompts used across AWS Agent Core, LangGraph Supervisor, and Snowflake Cortex AI agents, allowing for A/B testing, prompt optimization, and consistent behavior across all components.

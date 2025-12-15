@@ -1,0 +1,41 @@
+# Langfuse Prompt Configuration
+# This file defines default prompts that can be managed in Langfuse
+
+prompts:
+  - name: orchestrator_query
+    description: "Prompt for AWS Agent Core orchestrator to process user queries"
+    default_template: "You are a multi-agent orchestrator. Process the following query: {query}"
+    variables:
+      - query
+      - session_id
+      - context
+  
+  - name: supervisor_routing
+    description: "Prompt for LangGraph supervisor to route queries to appropriate agents"
+    default_template: "Analyze the following query and determine the best agent to handle it: {query}\n\nContext: {context}"
+    variables:
+      - query
+      - context
+  
+  - name: snowflake_cortex_analyst
+    description: "Prompt for Snowflake Cortex AI Analyst to convert queries to SQL"
+    default_template: "Convert the following natural language query to SQL: {query}\n\nSemantic model context: {semantic_model}"
+    variables:
+      - query
+      - semantic_model
+      - context
+  
+  - name: snowflake_cortex_search
+    description: "Prompt for Snowflake Cortex AI Search to search unstructured data"
+    default_template: "Search for information related to: {query}\n\nSearch context: {context}"
+    variables:
+      - query
+      - context
+  
+  - name: snowflake_cortex_combined
+    description: "Prompt for combined Snowflake Cortex AI agent"
+    default_template: "Process the following query using both structured and unstructured data: {query}\n\nContext: {context}"
+    variables:
+      - query
+      - context
+
