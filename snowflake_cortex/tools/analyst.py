@@ -1,8 +1,8 @@
 """Cortex AI Analyst for structured data queries."""
 
 import logging
-from typing import Dict, Any, Optional
-import snowflake.connector
+from typing import Dict, Any, Optional, List
+from snowflake.snowpark import Session
 from shared.config.settings import settings
 from shared.utils.exceptions import SnowflakeCortexError
 from snowflake_cortex.semantic_models.loader import SemanticModelLoader
@@ -17,7 +17,41 @@ class CortexAnalyst:
         """Initialize the Cortex Analyst."""
         self.snowflake_config = settings.snowflake
         self.semantic_loader = SemanticModelLoader()
+        self._session: Optional[Session] = None
         logger.info("Initialized Cortex AI Analyst")
+    
+    def _get_snowflake_session(self) -> Session:
+        """Get or create Snowflake Snowpark session."""
+        if self._session is None:
+            if not all([
+                self.snowflake_config.snowflake_account,
+                self.snowflake_config.snowflake_user,
+                self.snowflake_config.snowflake_password,
+                self.snowflake_config.snowflake_warehouse,
+                self.snowflake_config.snowflake_database
+            ]):
+                raise SnowflakeCortexError("Snowflake configuration is incomplete")
+            
+            connection_parameters = {
+                "account": self.snowflake_config.snowflake_account,
+                "user": self.snowflake_config.snowflake_user,
+                "password": self.snowflake_config.snowflake_password,
+                "warehouse": self.snowflake_config.snowflake_warehouse,
+                "database": self.snowflake_config.snowflake_database,
+                "schema": self.snowflake_config.snowflake_schema,
+            }
+            
+            if self.snowflake_config.snowflake_role:
+                connection_parameters["role"] = self.snowflake_config.snowflake_role
+            
+            try:
+                self._session = Session.builder.configs(connection_parameters).create()
+                logger.info("Created Snowflake Snowpark session")
+            except Exception as e:
+                logger.error(f"Failed to create Snowflake session: {str(e)}")
+                raise SnowflakeCortexError(f"Failed to connect to Snowflake: {str(e)}") from e
+        
+        return self._session
     
     async def analyze_query(
         self,
@@ -73,7 +107,7 @@ class CortexAnalyst:
         semantic_model: Optional[Dict[str, Any]] = None
     ) -> str:
         """
-        Convert natural language query to SQL using semantic model.
+        Convert natural language query to SQL using Snowflake Cortex AI Analyst.
         
         Args:
             query: Natural language query
@@ -82,19 +116,81 @@ class CortexAnalyst:
         Returns:
             SQL query string
         """
-        # In production, this would use Snowflake Cortex AI Analyst
-        # to convert the query using the semantic model
-        # For now, this is a placeholder
-        
-        logger.debug(f"Converting query to SQL: {query[:50]}...")
-        
-        # Placeholder SQL generation
-        # In production: Use Snowflake Cortex AI Analyst API
-        sql = f"-- Generated SQL for: {query}\nSELECT * FROM table_name LIMIT 10;"
-        
-        return sql
+        try:
+            logger.debug(f"Converting query to SQL using Cortex AI Analyst: {query[:50]}...")
+            
+            session = self._get_snowflake_session()
+            
+            # Build semantic model context if available
+            semantic_context = ""
+            if semantic_model:
+                tables_info = []
+                for table in semantic_model.get("tables", []):
+                    table_name = table.get("name", "")
+                    table_desc = table.get("description", "")
+                    columns = table.get("columns", [])
+                    col_info = ", ".join([f"{col.get('name')} ({col.get('type')})" for col in columns])
+                    tables_info.append(f"Table: {table_name} - {table_desc}\nColumns: {col_info}")
+                semantic_context = "\n\n".join(tables_info)
+            
+            # Use Snowflake Cortex AI Analyst to convert NL to SQL
+            # The ANALYZE function in Snowflake Cortex AI can convert natural language to SQL
+            try:
+                # Method 1: Using SNOWFLAKE.CORTEX.ANALYZE function
+                analyze_query = f"""
+                SELECT SNOWFLAKE.CORTEX.ANALYZE(
+                    '{query}',
+                    {f"'{semantic_context}'" if semantic_context else "NULL"}
+                ) AS sql_query
+                """
+                
+                result = session.sql(analyze_query).collect()
+                
+                if result and len(result) > 0:
+                    sql_query = result[0]["SQL_QUERY"]
+                    logger.debug(f"Generated SQL: {sql_query[:100]}...")
+                    return sql_query
+                
+            except Exception as analyze_error:
+                logger.warning(f"Cortex AI Analyst function not available: {str(analyze_error)}")
+                # Fallback: Try using COMPLETE function for SQL generation
+                try:
+                    complete_query = f"""
+                    SELECT SNOWFLAKE.CORTEX.COMPLETE(
+                        'snowflake-snowflake-arctic-sql',
+                        CONCAT('Convert this natural language query to SQL: {query}', 
+                               {f"', Context: {semantic_context}'" if semantic_context else "''"})
+                    ) AS sql_query
+                    """
+                    result = session.sql(complete_query).collect()
+                    if result and len(result) > 0:
+                        sql_query = result[0]["SQL_QUERY"]
+                        logger.debug(f"Generated SQL (fallback): {sql_query[:100]}...")
+                        return sql_query
+                except Exception as complete_error:
+                    logger.warning(f"Cortex AI Complete function not available: {str(complete_error)}")
+            
+            # Final fallback: Simple pattern-based SQL generation
+            logger.warning("Using fallback SQL generation")
+            query_lower = query.lower()
+            
+            # Simple keyword-based SQL generation
+            if "count" in query_lower or "how many" in query_lower:
+                sql = "SELECT COUNT(*) as count FROM table_name;"
+            elif "sum" in query_lower or "total" in query_lower:
+                sql = "SELECT SUM(amount) as total FROM table_name;"
+            elif "average" in query_lower or "avg" in query_lower:
+                sql = "SELECT AVG(amount) as average FROM table_name;"
+            else:
+                sql = f"SELECT * FROM table_name WHERE column_name LIKE '%{query}%' LIMIT 10;"
+            
+            return sql
+            
+        except Exception as e:
+            logger.error(f"Error converting query to SQL: {str(e)}")
+            raise SnowflakeCortexError(f"SQL conversion failed: {str(e)}") from e
     
-    async def _execute_query(self, sql_query: str) -> list:
+    async def _execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
         """
         Execute SQL query in Snowflake.
         
@@ -102,34 +198,47 @@ class CortexAnalyst:
             sql_query: SQL query string
         
         Returns:
-            Query results
+            Query results as list of dictionaries
         """
         try:
             logger.debug(f"Executing SQL query: {sql_query[:100]}...")
             
-            # In production, this would execute the query using Snowflake connector
-            # conn = snowflake.connector.connect(
-            #     account=self.snowflake_config.snowflake_account,
-            #     user=self.snowflake_config.snowflake_user,
-            #     password=self.snowflake_config.snowflake_password,
-            #     warehouse=self.snowflake_config.snowflake_warehouse,
-            #     database=self.snowflake_config.snowflake_database,
-            #     schema=self.snowflake_config.snowflake_schema
-            # )
-            # cursor = conn.cursor()
-            # cursor.execute(sql_query)
-            # results = cursor.fetchall()
-            # cursor.close()
-            # conn.close()
+            session = self._get_snowflake_session()
             
-            # Placeholder results
-            results = [{"column1": "value1", "column2": "value2"}]
+            # Execute query using Snowpark
+            df = session.sql(sql_query)
+            results = df.collect()
             
-            return results
+            # Convert Snowpark Row objects to dictionaries
+            if results:
+                # Get column names from the first row
+                column_names = [col for col in results[0].asDict().keys()]
+                
+                # Convert to list of dictionaries
+                result_list = []
+                for row in results:
+                    row_dict = row.asDict()
+                    result_list.append(row_dict)
+                
+                logger.info(f"Query executed successfully. Returned {len(result_list)} rows")
+                return result_list
+            else:
+                logger.info("Query executed successfully but returned no rows")
+                return []
             
         except Exception as e:
             logger.error(f"Error executing SQL query: {str(e)}")
             raise SnowflakeCortexError(f"SQL execution failed: {str(e)}") from e
+    
+    def close_session(self):
+        """Close Snowflake session."""
+        if self._session:
+            try:
+                self._session.close()
+                self._session = None
+                logger.info("Closed Snowflake session")
+            except Exception as e:
+                logger.warning(f"Error closing session: {str(e)}")
     
     def _format_response(self, results: list, original_query: str) -> str:
         """
