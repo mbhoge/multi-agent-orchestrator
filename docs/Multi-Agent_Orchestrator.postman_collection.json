@@ -1,0 +1,372 @@
+{
+	"info": {
+		"_postman_id": "multi-agent-orchestrator-api",
+		"name": "Multi-Agent Orchestrator API",
+		"description": "Postman collection for Multi-Agent Orchestrator FastAPI endpoints",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "multi-agent-orchestrator"
+	},
+	"item": [
+		{
+			"name": "Query Endpoints",
+			"item": [
+				{
+					"name": "Process Query - Basic",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"query\": \"What are the total sales for last month?\",\n  \"session_id\": \"{{session_id}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/query",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"{{api_version}}",
+								"query"
+							]
+						},
+						"description": "Process a basic user query through the multi-agent orchestrator"
+					},
+					"response": []
+				},
+				{
+					"name": "Process Query - With Context",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"query\": \"Analyze sales trends for Q4 2024\",\n  \"session_id\": \"{{session_id}}\",\n  \"context\": {\n    \"data_type\": \"structured\",\n    \"time_range\": \"Q4 2024\",\n    \"department\": \"sales\"\n  },\n  \"agent_preference\": \"cortex_analyst\",\n  \"metadata\": {\n    \"user_id\": \"user-789\",\n    \"request_source\": \"web_app\"\n  }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/query",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"{{api_version}}",
+								"query"
+							]
+						},
+						"description": "Process a query with additional context and metadata"
+					},
+					"response": []
+				},
+				{
+					"name": "Process Query - Unstructured Data",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"query\": \"Find all documents related to machine learning best practices\",\n  \"session_id\": \"{{session_id}}\",\n  \"context\": {\n    \"data_type\": \"unstructured\",\n    \"document_type\": \"research_papers\"\n  },\n  \"agent_preference\": \"cortex_search\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/query",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"{{api_version}}",
+								"query"
+							]
+						},
+						"description": "Process a query for unstructured data (documents, PDFs, etc.)"
+					},
+					"response": []
+				},
+				{
+					"name": "Process Query - With AWS Agent IDs",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"query\": \"Analyze customer feedback from last quarter\",\n  \"session_id\": \"{{session_id}}\",\n  \"context\": {\n    \"data_type\": \"mixed\",\n    \"analysis_type\": \"sentiment\"\n  }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/query?agent_id={{agent_id}}&agent_alias_id={{agent_alias_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"{{api_version}}",
+								"query"
+							],
+							"query": [
+								{
+									"key": "agent_id",
+									"value": "{{agent_id}}",
+									"description": "AWS Bedrock agent ID"
+								},
+								{
+									"key": "agent_alias_id",
+									"value": "{{agent_alias_id}}",
+									"description": "AWS Bedrock agent alias ID"
+								}
+							]
+						},
+						"description": "Process a query using AWS Bedrock Agent Core with agent IDs"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints for processing queries through the orchestrator"
+		},
+		{
+			"name": "Health & Monitoring",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"{{api_version}}",
+								"health"
+							]
+						},
+						"description": "Check the health status of the orchestrator service"
+					},
+					"response": [
+						{
+							"name": "Success Response",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/health",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"api",
+										"{{api_version}}",
+										"health"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": \"healthy\",\n  \"service\": \"aws-agent-core-orchestrator\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Get Metrics",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/metrics",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"{{api_version}}",
+								"metrics"
+							]
+						},
+						"description": "Get metrics from the orchestrator including request counts, timing, and performance data"
+					},
+					"response": [
+						{
+							"name": "Success Response",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/metrics",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"api",
+										"{{api_version}}",
+										"metrics"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"counters\": {\n    \"requests.total\": 1250,\n    \"requests.success\": 1200,\n    \"requests.error\": 50\n  },\n  \"timings\": {\n    \"request.processing\": {\n      \"count\": 1250,\n      \"sum\": 1875.0,\n      \"avg\": 1.5,\n      \"min\": 0.3,\n      \"max\": 8.2\n    }\n  },\n  \"gauges\": {\n    \"active_sessions\": 15\n  }\n}"
+						}
+					]
+				}
+			],
+			"description": "Health check and monitoring endpoints"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-generate session ID if not set",
+					"if (!pm.environment.get('session_id')) {",
+					"    pm.environment.set('session_id', 'session-' + Date.now());",
+					"}"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Common test script",
+					"pm.test('Status code is 200 or 500', function () {",
+					"    pm.expect(pm.response.code).to.be.oneOf([200, 500]);",
+					"});",
+					"",
+					"// For query endpoint, check response structure",
+					"if (pm.request.url.toString().includes('/query')) {",
+					"    if (pm.response.code === 200) {",
+					"        pm.test('Response has required fields', function () {",
+					"            const jsonData = pm.response.json();",
+					"            pm.expect(jsonData).to.have.property('response');",
+					"            pm.expect(jsonData).to.have.property('session_id');",
+					"            pm.expect(jsonData).to.have.property('agent_used');",
+					"        });",
+					"    }",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "api_version",
+			"value": "v1",
+			"type": "string"
+		},
+		{
+			"key": "session_id",
+			"value": "session-123",
+			"type": "string"
+		},
+		{
+			"key": "agent_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "agent_alias_id",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
