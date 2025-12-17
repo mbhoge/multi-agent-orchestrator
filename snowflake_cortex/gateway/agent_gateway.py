@@ -63,6 +63,22 @@ class CortexAgentGateway:
             messages.append({"role": "user", "content": [{"type": "text", "text": query}]})
         return messages
 
+    def _tool_choice(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Resolve Snowflake tool_choice for an agent run.
+
+        Per your design, we default to **automatic tool selection** and let the Snowflake
+        agent decide which tool(s) to invoke:
+
+            {"type": "auto"}
+
+        If a caller explicitly provides `context["tool_choice"]`, we pass it through to
+        allow constraining tools for specific requests.
+        """
+        if "tool_choice" in ctx and isinstance(ctx["tool_choice"], dict):
+            return ctx["tool_choice"]
+        return {"type": "auto"}
+
     async def _post_sse(self, url: str, body: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
         """POST to an SSE endpoint, accumulate text deltas and return (final_text, events)."""
         events: List[Dict[str, Any]] = []
@@ -101,6 +117,10 @@ class CortexAgentGateway:
                             # Ignore non-JSON lines
                             continue
         return ("".join(text_parts).strip(), events)
+
+    def _should_use_direct_agent_run(self, ctx: Dict[str, Any]) -> bool:
+        """Use /api/v2/cortex/agent:run when caller provides tool specs/resources in context."""
+        return bool(ctx.get("tool_resources") or ctx.get("tools") or ctx.get("tool_specs"))
     
     async def invoke_agent(
         self,
@@ -138,7 +158,9 @@ class CortexAgentGateway:
             # 1) Agent object run: /api/v2/databases/{db}/schemas/{schema}/agents/{name}:run
             # 2) No agent object: /api/v2/cortex/agent:run (requires full configuration in body)
             base = self._snowflake_api_base()
-            if self.snowflake_config.cortex_agents_database and self.snowflake_config.cortex_agents_schema and agent_name:
+            if self._should_use_direct_agent_run(ctx):
+                url = f"{base}/api/v2/cortex/agent:run"
+            elif self.snowflake_config.cortex_agents_database and self.snowflake_config.cortex_agents_schema and agent_name:
                 url = (
                     f"{base}/api/v2/databases/{self.snowflake_config.cortex_agents_database}"
                     f"/schemas/{self.snowflake_config.cortex_agents_schema}"
@@ -153,6 +175,24 @@ class CortexAgentGateway:
                 # If not using threads, messages should include full history + current message.
                 "messages": messages,
             }
+
+            # tool_choice defaults to auto (Snowflake agent decides); can be overridden via context["tool_choice"]
+            body["tool_choice"] = self._tool_choice(ctx)
+
+            # If calling /api/v2/cortex/agent:run directly (no agent object), allow passing tool specs/resources.
+            # This matches Snowflake's tool_spec/tool_resources schema.
+            if url.endswith("/api/v2/cortex/agent:run"):
+                if isinstance(ctx.get("tools"), list):
+                    body["tools"] = ctx["tools"]
+                if isinstance(ctx.get("tool_specs"), list):
+                    body["tool_specs"] = ctx["tool_specs"]
+                if isinstance(ctx.get("tool_resources"), dict):
+                    body["tool_resources"] = ctx["tool_resources"]
+                # Optional advanced fields supported by Snowflake (pass-through)
+                for k in ("models", "instructions", "orchestration"):
+                    if k in ctx:
+                        body[k] = ctx[k]
+
             if thread_id is not None and parent_message_id is not None:
                 body["thread_id"] = int(thread_id)
                 body["parent_message_id"] = int(parent_message_id)

@@ -192,7 +192,7 @@ async def _invoke_langgraph(
   "context": {
     "data_type": "structured"
   },
-  "agent_preference": "cortex_analyst"
+  "agent_preference": "market_segment"
 }
 ```
 
@@ -322,15 +322,15 @@ def route_request(
     
     Returns:
         {
-            "selected_agent": AgentType,
+            "agents_to_call": List[str],  # Snowflake agent object name(s)
             "routing_reason": str,
             "confidence": float
         }
     """
-    # Analyze query to determine which agent to use
-    # - cortex_analyst: For structured data queries
-    # - cortex_search: For unstructured data queries
-    # Returns routing decision
+    # Analyze query to determine which DOMAIN agent object(s) to call
+    # - market_segment: segmentation / retention / cohort analytics
+    # - drug_discovery: compounds / targets / assays / clinical queries
+    # Returns routing decision (agent object names)
 ```
 
 **Routing Logic:**
@@ -467,7 +467,7 @@ POST http://langgraph:8001/supervisor/process
 {
   "query": "What are sales?",
   "session_id": "session-123",
-  "context": {},
+  "context": {"domain": "market_segment"},
   "agent_preference": null
 }
 
@@ -493,8 +493,8 @@ POST http://snowflake-cortex:8002/agents/invoke
 // 2. LangGraph → AWS Agent Core
 {
   "response": "Sales are $1M",
-  "selected_agent": "cortex_analyst",
-  "routing_reason": "Query requires structured data",
+  "selected_agent": "MARKET_SEGMENT_AGENT",
+  "routing_reason": "Domain match to 'market_segment'",
   "confidence": 0.95,
   "sources": [...],
   "execution_time": 1.5,
@@ -505,13 +505,13 @@ POST http://snowflake-cortex:8002/agents/invoke
 {
   "response": "Sales are $1M",
   "session_id": "session-123",
-  "agent_used": "cortex_analyst",
+  "agent_used": "MARKET_SEGMENT_AGENT",
   "confidence": 0.95,
   "sources": [...],
   "execution_time": 1.5,
   "metadata": {
     "trace_id": "...",
-    "routing_reason": "Query requires structured data"
+    "routing_reason": "Domain match to 'market_segment'"
   },
   "timestamp": "2024-01-15T10:30:00.000Z"
 }

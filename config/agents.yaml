@@ -1,36 +1,43 @@
-# Agent Configuration
-# This file defines multiple Snowflake Cortex AI agents
+# Domain Agent Configuration (Snowflake Cortex Agent Objects)
+#
+# This file defines Snowflake Cortex Agent OBJECTS by domain.
+# LangGraph Supervisor uses this registry to select which agent object(s) to call.
+# Snowflake agent orchestration will decide which tools to invoke (analyst/search) based on messages + tool_choice hints.
+#
+# Each entry MUST set:
+# - domain: logical business domain name
+# - agent_name: Snowflake agent object name (used in /api/v2/.../agents/{agent_name}:run)
+# - enabled: whether it is available for routing
+#
+# Optional:
+# - keywords: list of keywords to route queries to this domain agent
+# - description: human readable description
 
 agents:
-  - name: cortex_analyst
-    type: cortex_analyst
-    description: "Cortex AI Analyst for structured data queries"
+  - domain: market_segment
+    agent_name: MARKET_SEGMENT_AGENT
+    description: "Domain agent for market segmentation analytics and insights"
     enabled: true
-    semantic_model: "default_semantic_model"
-    config:
-      max_query_timeout: 300
-      enable_caching: true
-  
-  - name: cortex_search
-    type: cortex_search
-    description: "Cortex AI Search for unstructured data queries"
-    enabled: true
-    config:
-      default_stage_path: "@my_stage"
-      max_results: 10
-      min_relevance_score: 0.5
-  
-  - name: cortex_combined
-    type: cortex_combined
-    description: "Combined agent using both Analyst and Search"
-    enabled: true
-    config:
-      use_analyst_first: true
-      combine_results: true
+    keywords:
+      - market
+      - segment
+      - segmentation
+      - churn
+      - retention
+      - customer
+      - cohort
 
-semantic_models:
-  - name: default_semantic_model
-    description: "Default semantic model for SQL generation"
-    location: "snowflake://semantic_models/default.yaml"
-    version: "1.0"
+  - domain: drug_discovery
+    agent_name: DRUG_DISCOVERY_AGENT
+    description: "Domain agent for drug discovery and life sciences queries"
+    enabled: true
+    keywords:
+      - drug
+      - discovery
+      - compound
+      - target
+      - assay
+      - clinical
+      - bioactivity
+
 

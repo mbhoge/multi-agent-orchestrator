@@ -4,10 +4,10 @@ This document describes the Langfuse prompt management functionality integrated 
 
 ## Overview
 
-Langfuse prompt management has been integrated into:
+Langfuse prompt management is integrated into:
 - **AWS Agent Core**: Orchestrator uses prompts for query processing
 - **LangGraph**: Supervisor uses prompts for routing decisions
-- **Snowflake Cortex AI Agents**: Each agent type uses specific prompts
+- **Snowflake Tier (Gateway)**: Pass-through only (Snowflake agent objects manage their own prompts/instructions)
 
 ## Architecture
 
@@ -15,10 +15,8 @@ Langfuse prompt management has been integrated into:
 Langfuse Prompt Manager
     ├── AWS Agent Core (orchestrator_query)
     ├── LangGraph Supervisor (supervisor_routing)
-    └── Snowflake Cortex Agents
-        ├── Cortex Analyst (snowflake_cortex_analyst)
-        ├── Cortex Search (snowflake_cortex_search)
-        └── Combined Agent (snowflake_cortex_combined)
+    └── Snowflake Cortex Agent Objects (in Snowflake)
+        └── Prompts/instructions live with the agent object configuration
 ```
 
 ## Prompt Manager
@@ -71,27 +69,16 @@ routing_decision = agent_router.route_request(
 )
 ```
 
-### 3. Snowflake Cortex Agents
+### 3. Snowflake Cortex Agent Objects (Snowflake-managed prompts)
 
-**Location**: `snowflake_cortex/agents/cortex_agent.py`
+**Location (code)**: `snowflake_cortex/gateway/agent_gateway.py` (REST client)
 
 **Usage**:
-- Each agent type fetches its specific prompt:
-  - `snowflake_cortex_analyst` for Analyst agent
-  - `snowflake_cortex_search` for Search agent
-  - `snowflake_cortex_combined` for Combined agent
-- Renders prompt with query, context, and agent-specific variables
-- Uses enhanced query for tool execution
+- The system invokes Snowflake Cortex **agent objects** via the **Cortex Agents Run REST API**
+- Prompting/instructions for tools live **inside Snowflake agent object configuration**
+- We send `messages[]` (history + current query) and optionally `tool_choice` hints
 
-**Example**:
-```python
-enhanced_query = await self._get_agent_prompt(query, prepared_context)
-result = await self.analyst.analyze_query(
-    query=enhanced_query,
-    session_id=session_id,
-    context=prepared_context
-)
-```
+**Reference**: `https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-run`
 
 ### 4. Snowflake Gateway API
 
@@ -131,20 +118,10 @@ curl -X POST http://localhost:8002/prompts \
    - Variables: `{query}`, `{context}`
    - Default: "Analyze the following query and determine the best agent to handle it: {query}\n\nContext: {context}"
 
-3. **snowflake_cortex_analyst**
-   - Used by: Cortex AI Analyst Agent
-   - Variables: `{query}`, `{semantic_model}`, `{context}`
-   - Default: "Convert the following natural language query to SQL: {query}\n\nSemantic model context: {semantic_model}"
-
-4. **snowflake_cortex_search**
-   - Used by: Cortex AI Search Agent
-   - Variables: `{query}`, `{context}`
-   - Default: "Search for information related to: {query}\n\nSearch context: {context}"
-
-5. **snowflake_cortex_combined**
-   - Used by: Combined Cortex AI Agent
-   - Variables: `{query}`, `{context}`
-   - Default: "Process the following query using both structured and unstructured data: {query}\n\nContext: {context}"
+3. **snowflake_agent_domain_prompt** (optional / Snowflake-side)
+   - Used by: Snowflake Cortex Agent objects (configured in Snowflake, not fetched by this codebase)
+   - Variables: N/A (Snowflake agent object configuration)
+   - Note: The codebase does not fetch per-agent prompts from Langfuse for Snowflake domain agents; it sends `messages[]` and optional `tool_choice` hints.
 
 ## Configuration
 

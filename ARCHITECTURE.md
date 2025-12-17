@@ -59,21 +59,24 @@ The Multi-Agent Orchestrator follows a **three-tier microservices architecture**
 ┌─────────────────────────────────────────────────────────────────┐
 │  Tier 3: Snowflake Cortex Agents (Port 8002)                   │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  CortexAgentGateway                                      │  │
-│  │  - Routes to specific agent type                         │  │
+│  │  SnowflakeGatewayService (FastAPI)                       │  │
+│  │  - Accepts /agents/invoke                                │  │
+│  │  - Calls Snowflake Cortex Agents Run REST API            │  │
 │  └───────────────────┬────────────────────────────────────┘  │
 │                      │                                          │
 │  ┌───────────────────▼────────────────────────────────────┐  │
-│  │  CortexAgent (BaseCortexAgent)                         │  │
-│  │  ├── CORTEX_ANALYST → CortexAnalyst tool               │  │
-│  │  ├── CORTEX_SEARCH → CortexSearch tool                 │  │
-│  │  └── CORTEX_COMBINED → Both tools                      │  │
+│  │  CortexAgentGatewayClient (REST)                        │  │
+│  │  - POST /api/v2/.../agents/{agent_name}:run             │  │
+│  │  - Sends messages[] (history + current query)           │  │
+│  │  - Snowflake agent orchestrates tool usage server-side  │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Tools:                                                   │  │
-│  │  - CortexAnalyst: SQL generation & execution             │  │
-│  │  - CortexSearch: Document search in Snowflake stages     │  │
+│  │  Snowflake Cortex Agent Objects (in Snowflake)           │  │
+│  │  - Analyst agent object (structured)                     │  │
+│  │  - Search agent object (unstructured)                    │  │
+│  │  - Combined agent object (both tools)                    │  │
+│  │  - Tools invoked via agent orchestration (tool_choice)   │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -115,13 +118,11 @@ The Multi-Agent Orchestrator follows a **three-tier microservices architecture**
    - Observability: Langfuse integration for tracing and monitoring
 
 3. **Snowflake Cortex Agents (Tier 3)**
-   - Specialized agents for different data types
-   - Direct Snowflake integration
-   - **Langfuse Prompt Management**: Each agent type uses specific prompts:
-     - `snowflake_cortex_analyst` for Analyst agent
-     - `snowflake_cortex_search` for Search agent
-     - `snowflake_cortex_combined` for Combined agent
-   - Observability: TruLens integration
+   - Snowflake-hosted agent objects invoked via **Cortex Agents Run REST API**
+   - Gateway service (`snowflake_cortex/gateway/api.py`) calls Snowflake `/api/v2/...:run`
+   - LangGraph passes **query + context + history** to Snowflake
+   - **Tool orchestration (tool_choice) is decided by the Snowflake agent**
+   - Observability: TruLens integration (optional / future hookup)
 
 4. **Langfuse Prompt Management (Cross-cutting)**
    - Centralized prompt storage and versioning
@@ -160,8 +161,8 @@ User Request
     ├─→ StateManager: Get/Create state
     ├─→ **Gets supervisor_routing prompt from Langfuse**
     ├─→ **Renders routing prompt with query and context**
-    ├─→ AgentRouter: Analyze & route query (using prompt-enhanced query)
-    ├─→ ShortTermMemory: Store query & routing
+    ├─→ AgentRouter: Selects which Snowflake agent object(s) to invoke (not tool_choice)
+    ├─→ ShortTermMemory: Store query, routing_decision, and history
     │
     ▼
 [HTTP POST] → Snowflake Gateway (/agents/invoke)
@@ -170,16 +171,11 @@ User Request
 [CortexAgentGateway.invoke_agent()]
     │
     ▼
-[CortexAgent.process_query()]
+[Snowflake Cortex Agents Run REST API]
     │
-    ├─→ **Gets agent-specific prompt from Langfuse**
-    │   (snowflake_cortex_analyst/search/combined)
-    ├─→ **Renders prompt with query, context, agent_type**
-    ├─→ **Uses enhanced query for tool execution**
-    │
-    ├─→ CortexAnalyst (if structured data) - uses prompt-enhanced query
-    ├─→ CortexSearch (if unstructured data) - uses prompt-enhanced query
-    └─→ Both (if combined) - uses prompt-enhanced query
+    ├─→ POST /api/v2/.../agents/{agent_name}:run
+    ├─→ Body: messages[] (history + current query)
+    ├─→ Snowflake agent orchestrates tool usage (analyst/search) server-side
     │
     ▼
 [Response flows back through layers]
@@ -235,59 +231,32 @@ Prompt Usage Flow:
     ├─→ LangGraph Supervisor: supervisor_routing prompt
     │   └─→ Variables: {query}, {context}
     │
-    └─→ Snowflake Cortex Agents:
-        ├─→ snowflake_cortex_analyst: {query}, {semantic_model}, {context}
-        ├─→ snowflake_cortex_search: {query}, {context}
-        └─→ snowflake_cortex_combined: {query}, {context}
+    └─→ Snowflake Cortex Agent Objects (Snowflake-managed):
+        └─→ Prompts/instructions are configured inside Snowflake agent objects
 ```
 
 ---
 
 ## How Agents Work Together
 
-### Agent Types
+### Snowflake Agent Objects (recommended)
 
-The system has **three specialized agent types**:
+Instead of local `CortexAgent` implementations, the system invokes **Snowflake Cortex Agent objects** via the
+**Cortex Agents Run REST API** ([Snowflake docs](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-run)).
 
-1. **CORTEX_ANALYST** (`cortex_analyst`)
-   - Purpose: Query structured data (tables, databases)
-   - Tool: `CortexAnalyst`
-   - Capabilities:
-     - Converts natural language to SQL using semantic models
-     - Executes SQL queries in Snowflake
-     - Returns structured results
+Typical setup (domain agents):
 
-2. **CORTEX_SEARCH** (`cortex_search`)
-   - Purpose: Search unstructured data (PDFs, PPTs, documents)
-   - Tool: `CortexSearch`
-   - Capabilities:
-     - Searches documents in Snowflake stages
-     - Returns relevant document snippets
-     - Provides relevance scores
-
-3. **CORTEX_COMBINED** (`cortex_combined`)
-   - Purpose: Handle ambiguous queries requiring both data types
-   - Tools: Both `CortexAnalyst` and `CortexSearch`
-   - Capabilities:
-     - Runs both tools in parallel
-     - Combines results intelligently
-     - Provides comprehensive answers
+1. **market_segment agent object**
+   - Domain-specific instructions (in Snowflake)
+   - Uses `cortex_analyst_text_to_sql` and/or `cortex_search` as needed
+2. **drug_discovery agent object**
+   - Domain-specific instructions (in Snowflake)
+   - Uses `cortex_analyst_text_to_sql` and/or `cortex_search` as needed
 
 ### Routing Logic
 
-The `AgentRouter` uses **keyword-based scoring** to determine which agent to use:
-
-```python
-# Analyst keywords: query, sql, table, data, database, analyze, report, statistics
-# Search keywords: search, find, document, pdf, ppt, file, content, unstructured
-
-Scoring Algorithm:
-1. Count keyword matches in query
-2. Normalize scores (0.0 - 1.0)
-3. Check context hints (data_type: structured/unstructured)
-4. Apply confidence thresholds
-5. Route to highest scoring agent (or combined if ambiguous)
-```
+The `AgentRouter` uses **domain keyword scoring** (and optional `context.domain`) to determine which Snowflake agent object(s) to call.
+Domain agents are defined in `config/agents.yaml`.
 
 ### Agent Coordination Example
 
@@ -295,14 +264,12 @@ Scoring Algorithm:
 
 1. **AWS Agent Core** receives request
 2. **LangGraph Supervisor** analyzes query:
-   - Keywords: "total", "sales", "month" → Analyst keywords detected
-   - Score: Analyst=0.8, Search=0.1
-   - Decision: Route to `CORTEX_ANALYST`
-3. **CortexAgent** (Analyst type) processes:
-   - Loads semantic model
-   - Converts to SQL: `SELECT SUM(amount) FROM sales WHERE month = ...`
-   - Executes query
-   - Returns results
+   - Determines likely domain (e.g., `market_segment`)
+   - Decision: Call the Snowflake domain agent object (e.g., `MARKET_SEGMENT_AGENT`)
+3. **Snowflake Gateway** calls Snowflake:
+   - POST `/api/v2/databases/{db}/schemas/{schema}/agents/{agent_name}:run`
+   - Sends messages[] with history + current user query
+4. **Snowflake agent** orchestrates tool usage server-side and returns response
 4. **Response flows back** through all layers with metadata
 
 ---
@@ -343,29 +310,22 @@ Scoring Algorithm:
 │ - Updates state: status=PROCESSING                           │
 │ - **Fetches supervisor_routing prompt from Langfuse**       │
 │ - **Renders routing prompt: {query}, {context}**             │
-│ - AgentRouter analyzes query (using prompt-enhanced query)   │
+│ - AgentRouter selects agent object(s)                        │
 │ - Routing decision: {                                        │
-│     "selected_agent": "cortex_analyst",                     │
-│     "routing_reason": "Query appears to be for structured...",│
+│     "agents_to_call": ["MARKET_SEGMENT_AGENT"],             │
+│     "routing_reason": "Domain match to 'market_segment'...", │
 │     "confidence": 0.8                                       │
 │   }                                                          │
-│ - Stores in short-term memory                               │
-│ - Updates state: selected_agent, routing_reason             │
+│ - Stores in short-term memory (including history)            │
 └───────────────────────┬─────────────────────────────────────┘
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ 4. Snowflake Cortex Agent Layer                             │
-│ - CortexAgentGateway receives request                       │
-│ - Routes to CortexAgent (Analyst type)                      │
-│ - **Fetches snowflake_cortex_analyst prompt from Langfuse** │
-│ - **Renders prompt: {query}, {semantic_model}, {context}**  │
-│ - CortexAnalyst tool (using prompt-enhanced query):         │
-│   * Loads semantic model                                    │
-│   * Converts NL to SQL (with prompt context)                │
-│   * Executes SQL in Snowflake                               │
-│   * Formats results                                         │
-│ - TruLens logs execution                                    │
+│ - Snowflake Gateway receives request                         │
+│ - Calls Snowflake Cortex Agents Run REST API                 │
+│ - Sends messages[] (history + current query)                 │
+│ - Snowflake agent decides tool_choice and runs tools          │
 └───────────────────────┬─────────────────────────────────────┘
                         │
                         ▼
@@ -373,14 +333,14 @@ Scoring Algorithm:
 │ 5. Response Data Flow (Backwards)                           │
 │ {                                                            │
 │   "response": "Total sales: $1,234,567",                   │
-│   "sql_query": "SELECT SUM(amount)...",                    │
-│   "sources": [{"type": "structured_data", ...}],          │
-│   "agent_type": "cortex_analyst"                            │
+│   "agent_name": "MY_ANALYST_AGENT",                         │
+│   "raw_events_count": 42,                                   │
+│   "raw_events_sample": [...],                               │
 │ }                                                            │
 │         ↓                                                   │
 │ {                                                            │
 │   "response": "...",                                        │
-│   "selected_agent": "cortex_analyst",                      │
+│   "selected_agent": "MY_ANALYST_AGENT",                    │
 │   "routing_reason": "...",                                 │
 │   "confidence": 0.8,                                        │
 │   "sources": [...],                                         │
@@ -433,7 +393,7 @@ Long-Term Memory (persistent):
 ┌─────────────────────────────────────┐
 │ query_pattern_session-123:          │
 │ ├── query: "What are sales?"        │
-│ ├── agent: "cortex_analyst"        │
+│ ├── agent: "MARKET_SEGMENT_AGENT"  │
 │ └── success: true                  │
 └─────────────────────────────────────┘
 ```
@@ -526,18 +486,6 @@ prompts:
   - name: supervisor_routing
     description: "Prompt for LangGraph supervisor routing"
     default_template: "Analyze the following query and determine the best agent: {query}\n\nContext: {context}"
-  
-  - name: snowflake_cortex_analyst
-    description: "Prompt for Cortex AI Analyst"
-    default_template: "Convert the following natural language query to SQL: {query}\n\nSemantic model context: {semantic_model}"
-  
-  - name: snowflake_cortex_search
-    description: "Prompt for Cortex AI Search"
-    default_template: "Search for information related to: {query}\n\nSearch context: {context}"
-  
-  - name: snowflake_cortex_combined
-    description: "Prompt for combined Cortex AI agent"
-    default_template: "Process the following query using both structured and unstructured data: {query}\n\nContext: {context}"
 ```
 
 **Managing Prompts:**
@@ -567,37 +515,17 @@ Edit `config/agents.yaml`:
 
 ```yaml
 agents:
-  - name: cortex_analyst
-    type: cortex_analyst
-    description: "Cortex AI Analyst for structured data queries"
+  - domain: market_segment
+    agent_name: MARKET_SEGMENT_AGENT
+    description: "Domain agent for market segmentation analytics and insights"
     enabled: true
-    semantic_model: "default_semantic_model"
-    config:
-      max_query_timeout: 300
-      enable_caching: true
-  
-  - name: cortex_search
-    type: cortex_search
-    description: "Cortex AI Search for unstructured data queries"
-    enabled: true
-    config:
-      default_stage_path: "@my_stage"
-      max_results: 10
-      min_relevance_score: 0.5
-  
-  - name: cortex_combined
-    type: cortex_combined
-    description: "Combined agent using both Analyst and Search"
-    enabled: true
-    config:
-      use_analyst_first: true
-      combine_results: true
+    keywords: ["market", "segment", "churn", "retention"]
 
-semantic_models:
-  - name: default_semantic_model
-    description: "Default semantic model for SQL generation"
-    location: "snowflake://semantic_models/default.yaml"
-    version: "1.0"
+  - domain: drug_discovery
+    agent_name: DRUG_DISCOVERY_AGENT
+    description: "Domain agent for drug discovery and life sciences queries"
+    enabled: true
+    keywords: ["drug", "compound", "target", "assay", "clinical"]
 ```
 
 ### 4. Setup Steps
@@ -667,7 +595,7 @@ curl -X POST http://localhost:8000/api/v1/query \
   -d '{
     "query": "What are the total sales for last month?",
     "session_id": "test-session-1",
-    "context": {"data_type": "structured"}
+    "context": {"domain": "market_segment"}
   }'
 ```
 
@@ -676,61 +604,30 @@ curl -X POST http://localhost:8000/api/v1/query \
 {
   "response": "Found 1 result(s) for your query:\n\nResult 1: {...}",
   "session_id": "test-session-1",
-  "agent_used": "cortex_analyst",
+  "agent_used": "MARKET_SEGMENT_AGENT",
   "confidence": 0.8,
   "sources": [...],
   "execution_time": 1.23,
   "metadata": {
     "trace_id": "...",
-    "routing_reason": "Query appears to be for structured data..."
+    "routing_reason": "Domain match to 'market_segment'..."
   }
 }
 ```
 
 ### 6. Adding New Agents
 
-To add a new agent type:
+To add a new domain agent:
 
-1. **Create agent class** in `snowflake_cortex/agents/`:
-```python
-from snowflake_cortex.agents.base_agent import BaseCortexAgent
+1. **Create a Snowflake Cortex agent object** in your Snowflake DB/SCHEMA with domain instructions and tool resources.
 
-class MyNewAgent(BaseCortexAgent):
-    async def process_query(self, query, session_id, context):
-        # Implementation
-        pass
-```
-
-2. **Add to AgentType enum** in `shared/models/agent_state.py`:
-```python
-class AgentType(str, Enum):
-    # ... existing types
-    MY_NEW_AGENT = "my_new_agent"
-```
-
-3. **Update routing logic** in `langgraph/reasoning/router.py`:
-```python
-def _score_my_agent_query(self, query: str) -> float:
-    # Add scoring logic
-    pass
-```
-
-4. **Add configuration** in `config/agents.yaml`:
+2. **Add configuration** in `config/agents.yaml`:
 ```yaml
 agents:
-  - name: my_new_agent
-    type: my_new_agent
+  - domain: my_new_domain
+    agent_name: MY_NEW_DOMAIN_AGENT
     enabled: true
-    config:
-      # agent-specific config
-```
-
-5. **Register in gateway** in `snowflake_cortex/gateway/api.py`:
-```python
-agents = {
-    # ... existing agents
-    AgentType.MY_NEW_AGENT: MyNewAgent(AgentType.MY_NEW_AGENT),
-}
+    keywords: ["custom", "keywords"]
 ```
 
 ### 7. Customizing Routing
@@ -738,13 +635,7 @@ agents = {
 Edit `langgraph/reasoning/router.py` to customize routing logic:
 
 ```python
-# Add custom keywords
-self.my_agent_keywords = ["custom", "keywords"]
-
-# Modify scoring algorithm
-def _score_my_agent_query(self, query: str) -> float:
-    # Custom scoring logic
-    pass
+# Update `config/agents.yaml` domain keywords or tweak the domain scoring thresholds.
 ```
 
 ### 8. Observability Setup

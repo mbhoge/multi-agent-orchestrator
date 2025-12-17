@@ -68,7 +68,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"query\": \"Analyze sales trends for Q4 2024\",\n  \"session_id\": \"{{session_id}}\",\n  \"context\": {\n    \"data_type\": \"structured\",\n    \"time_range\": \"Q4 2024\",\n    \"department\": \"sales\"\n  },\n  \"agent_preference\": \"cortex_analyst\",\n  \"metadata\": {\n    \"user_id\": \"user-789\",\n    \"request_source\": \"web_app\"\n  }\n}",
+"raw": "{\n  \"query\": \"Analyze sales trends for Q4 2024\",\n  \"session_id\": \"{{session_id}}\",\n  \"context\": {\n    \"data_type\": \"structured\",\n    \"time_range\": \"Q4 2024\",\n    \"department\": \"sales\",\n    \"domain\": \"market_segment\"\n  },\n  \"agent_preference\": \"market_segment\",\n  \"metadata\": {\n    \"user_id\": \"user-789\",\n    \"request_source\": \"web_app\"\n  }\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -108,7 +108,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"query\": \"Find all documents related to machine learning best practices\",\n  \"session_id\": \"{{session_id}}\",\n  \"context\": {\n    \"data_type\": \"unstructured\",\n    \"document_type\": \"research_papers\"\n  },\n  \"agent_preference\": \"cortex_search\"\n}",
+"raw": "{\n  \"query\": \"Find all documents related to machine learning best practices\",\n  \"session_id\": \"{{session_id}}\",\n  \"context\": {\n    \"data_type\": \"unstructured\",\n    \"document_type\": \"research_papers\",\n    \"domain\": \"drug_discovery\"\n  },\n  \"agent_preference\": \"drug_discovery\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -370,5 +370,6 @@
 		}
 	]
 }
+
 
 

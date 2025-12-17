@@ -15,7 +15,7 @@
 │    "query": "What are the total sales for Q4 2024?",                                                   │
 │    "session_id": "session-123",                                                                        │
 │    "context": {"data_type": "structured"},                                                              │
-│    "agent_preference": "cortex_analyst",                                                               │
+│    "agent_preference": "market_segment",                                                               │
 │    "metadata": {"user_id": "user-789", "request_source": "web_app"}                                  │
 │  }                                                                                                      │
 └────────────────────────────────┬──────────────────────────────────────────────────────────────────────┘
@@ -80,7 +80,7 @@
 │  │       "query": "Enhanced query...",                                                           │      │
 │  │       "session_id": "session-123",                                                            │      │
 │  │       "context": {"data_type": "structured"},                                                 │      │
-│  │       "agent_preference": "cortex_analyst"                                                    │      │
+│  │       "agent_preference": "market_segment"                                                    │      │
 │  │     }                                                                                          │      │
 │  │                                                                                               │      │
 │  │  📊 METRICS: langgraph.invocation.start                                                       │      │
@@ -188,14 +188,14 @@
 │  │  │                                                                             │             │      │
 │  │  │  2. Routing Decision:                                                      │             │      │
 │  │  │     {                                                                       │             │      │
-│  │  │       "selected_agent": AgentType.CORTEX_ANALYST,                         │             │      │
+│  │  │       "selected_agent": "MARKET_SEGMENT_AGENT",                            │             │      │
 │  │  │       "routing_reason": "Query requires structured data analysis",        │             │      │
 │  │  │       "confidence": 0.95                                                   │             │      │
 │  │  │     }                                                                       │             │      │
 │  │  │                                                                             │             │      │
 │  │  │  3. Update State:                                                          │             │      │
 │  │  │     state_manager.update_state(session_id, {                               │             │      │
-│  │  │       "selected_agent": "cortex_analyst",                                   │             │      │
+│  │  │       "selected_agent": "MARKET_SEGMENT_AGENT",                              │             │      │
 │  │  │       "routing_reason": "Query requires structured data",                  │             │      │
 │  │  │       "current_step": "agent_invocation"                                   │             │      │
 │  │  │     })                                                                      │             │      │
@@ -207,7 +207,7 @@
 │  │     - Routing time measured                                                                  │      │
 │  └──────────────────┬──────────────────────────────────────────────────────────────────────────┘      │
 │                     │                                                                                  │
-│                     │ Routing Decision: cortex_analyst (confidence: 0.95)                              │
+│                     │ Routing Decision: market_segment (confidence: 0.95)                              │
 │                     ▼                                                                                  │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐      │
 │  │  Step 4: Memory Management                                                                  │      │
@@ -310,7 +310,7 @@
 │  │      key=f"query_pattern_{session_id}",                                                      │      │
 │  │      value={                                                                                 │      │
 │  │        "query": "What are sales?",                                                           │      │
-│  │        "agent": "cortex_analyst",                                                             │      │
+│  │        "agent": "market_segment",                                                            │      │
 │  │        "success": True                                                                       │      │
 │  │      }                                                                                        │      │
 │  │    )                                                                                          │      │
@@ -335,13 +335,13 @@
 │  │  │    "session_id": "session-123",                                             │             │      │
 │  │  │    "input": "What are sales?",                                             │             │      │
 │  │  │    "output": {                                                             │             │      │
-│  │  │      "selected_agent": "cortex_analyst",                                    │             │      │
+│  │  │      "selected_agent": "MARKET_SEGMENT_AGENT",                               │             │      │
 │  │  │      "routing_reason": "Query requires structured data",                  │             │      │
 │  │  │      "confidence": 0.95                                                    │             │      │
 │  │  │    },                                                                       │             │      │
 │  │  │    "metadata": {                                                            │             │      │
 │  │  │      "execution_time": 1.5,                                                │             │      │
-│  │  │      "selected_agent": "cortex_analyst",                                    │             │      │
+│  │  │      "selected_agent": "MARKET_SEGMENT_AGENT",                               │             │      │
 │  │  │      "confidence": 0.95                                                    │             │      │
 │  │  │    }                                                                        │             │      │
 │  │  │  }                                                                           │             │      │
@@ -364,7 +364,7 @@
 │  │  Return Response to AWS Agent Core                                                           │      │
 │  │  {                                                                                             │      │
 │  │    "response": "Total sales for Q4 2024: $5,234,567",                                        │      │
-│  │    "selected_agent": "cortex_analyst",                                                        │      │
+│  │    "selected_agent": "MARKET_SEGMENT_AGENT",                                                   │      │
 │  │    "routing_reason": "Query requires structured data analysis",                              │      │
 │  │    "confidence": 0.95,                                                                        │      │
 │  │    "sources": [...],                                                                          │      │
@@ -393,7 +393,7 @@
 │  │  {                                                                                             │      │
 │  │    "response": "Total sales for Q4 2024: $5,234,567",                                        │      │
 │  │    "session_id": "session-123",                                                               │      │
-│  │    "agent_used": "cortex_analyst",                                                            │      │
+│  │    "agent_used": "MARKET_SEGMENT_AGENT",                                                       │      │
 │  │    "confidence": 0.95,                                                                        │      │
 │  │    "sources": [...],                                                                          │      │
 │  │    "execution_time": 1.5,                                                                     │      │
@@ -431,7 +431,7 @@
 │  {                                                                                                      │
 │    "response": "Total sales for Q4 2024: $5,234,567",                                                  │
 │    "session_id": "session-123",                                                                         │
-│    "agent_used": "cortex_analyst",                                                                     │
+│    "agent_used": "MARKET_SEGMENT_AGENT",                                                                │
 │    "confidence": 0.95,                                                                                  │
 │    "sources": [...],                                                                                    │
 │    "execution_time": 1.5,                                                                               │
@@ -518,8 +518,8 @@
 │  • orchestrator_query: Initial query enhancement                                             │
 │  • supervisor_routing: Agent routing decision                                                │
 │  • agent_response: Agent response generation                                                 │
-│  • snowflake_cortex_analyst: SQL query conversion                                             │
-│  • snowflake_cortex_search: Document search                                                   │
+│  • analyst_tool: Structured analysis tool (semantic model / SQL)                              │
+│  • search_tool: Unstructured search tool (search service / docs)                              │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -552,7 +552,7 @@
 │  ┌────────────────────────────────────────────────────────────────────────────┐             │
 │  │  Routing Decision                                                          │             │
 │  │  {                                                                          │             │
-│  │    "selected_agent": "cortex_analyst",                                      │             │
+│  │    "selected_agent": "MARKET_SEGMENT_AGENT",                                 │             │
 │  │    "routing_reason": "Query requires structured data",                   │             │
 │  │    "confidence": 0.95                                                      │             │
 │  │  }                                                                          │             │

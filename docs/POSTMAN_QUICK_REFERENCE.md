@@ -58,7 +58,7 @@ Content-Type: application/json
   "context": {
     "data_type": "structured"
   },
-  "agent_preference": "cortex_analyst",
+  "agent_preference": "market_segment",
   "metadata": {
     "user_id": "user-123"
   }
@@ -137,7 +137,7 @@ POST /api/v1/query?agent_id=AGENT123&agent_alias_id=ALIAS456
   "context": {
     "data_type": "structured"
   },
-  "agent_preference": "cortex_analyst"
+  "agent_preference": "market_segment"
 }
 ```
 
@@ -148,7 +148,7 @@ POST /api/v1/query?agent_id=AGENT123&agent_alias_id=ALIAS456
   "context": {
     "data_type": "unstructured"
   },
-  "agent_preference": "cortex_search"
+  "agent_preference": "drug_discovery"
 }
 ```
 
@@ -219,5 +219,6 @@ POST /api/v1/query?agent_id=AGENT123&agent_alias_id=ALIAS456
 - Provide relevant `context` for better routing
 - Check `execution_time` in response for performance monitoring
 - Use `metadata` field to track requests across your system
+
 
 

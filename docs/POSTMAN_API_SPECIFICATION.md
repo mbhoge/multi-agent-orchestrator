@@ -74,7 +74,7 @@ Accept: application/json
 | `query` | string | **Yes** | User query or request | `"What are the total sales for last month?"` |
 | `session_id` | string | No | Session ID for state management | `"session-123"` |
 | `context` | object | No | Additional context for the request | `{"data_type": "structured"}` |
-| `agent_preference` | string | No | Preferred Snowflake agent object name or keyword (analyst/search/combined) | `"MY_ANALYST_AGENT"` |
+| `agent_preference` | string | No | Preferred Snowflake agent object name or domain (e.g., `market_segment`, `drug_discovery`) | `"market_segment"` |
 | `metadata` | object | No | Request metadata | `{"user_id": "user-123", "request_id": "req-456"}` |
 
 ### Example Request 1: Basic Query
@@ -113,7 +113,7 @@ Content-Type: application/json
     "time_range": "Q4 2024",
     "department": "sales"
   },
-  "agent_preference": "cortex_analyst",
+  "agent_preference": "market_segment",
   "metadata": {
     "user_id": "user-789",
     "request_source": "web_app"
@@ -139,7 +139,7 @@ Content-Type: application/json
     "data_type": "unstructured",
     "document_type": "research_papers"
   },
-  "agent_preference": "cortex_search"
+  "agent_preference": "drug_discovery"
 }
 ```
 
@@ -175,7 +175,7 @@ Content-Type: application/json
 |-------|------|-------------|
 | `response` | string | Agent response text |
 | `session_id` | string | Session identifier |
-| `agent_used` | string | Agent that processed the request (e.g., "cortex_analyst", "cortex_search", "langgraph") |
+| `agent_used` | string | Agent object(s) that processed the request (Snowflake agent name(s) or "langgraph") |
 | `confidence` | float | Confidence score (0.0 to 1.0) |
 | `sources` | array | Source references used in the response |
 | `execution_time` | float | Execution time in seconds |
@@ -188,7 +188,7 @@ Content-Type: application/json
 {
   "response": "The total sales for last month were $1,234,567. This represents a 15% increase compared to the previous month.",
   "session_id": "session-123",
-  "agent_used": "cortex_analyst",
+  "agent_used": "MARKET_SEGMENT_AGENT",
   "confidence": 0.92,
   "sources": [
     {
@@ -393,7 +393,7 @@ Accept: {{content_type}}
     "data_type": "structured",
     "time_range": "Q4 2024"
   },
-  "agent_preference": "cortex_analyst",
+  "agent_preference": "market_segment",
   "metadata": {
     "user_id": "user-123",
     "request_source": "postman"
@@ -422,7 +422,7 @@ Accept: {{content_type}}
     "data_type": "unstructured",
     "document_type": "research_papers"
   },
-  "agent_preference": "cortex_search"
+  "agent_preference": "drug_discovery"
 }
 ```
 
@@ -496,10 +496,10 @@ Accept: {{content_type}}
 
 ### Scenario 4: Agent Selection
 
-1. **Process Query** → Send query with `agent_preference: "cortex_analyst"`
-2. Verify response uses specified agent
-3. **Process Query** → Send query with `agent_preference: "cortex_search"`
-4. Verify different agent is used
+1. **Process Query** → Send query with `agent_preference: "market_segment"` (domain)
+2. Verify response uses the market segment Snowflake agent object
+3. **Process Query** → Send query with `agent_preference: "drug_discovery"` (domain)
+4. Verify different domain agent is used
 
 ---
 

@@ -1,11 +1,13 @@
 """Request routing logic to Snowflake Cortex Agent objects.
 
-This router selects WHICH Snowflake agent object(s) to invoke.
-It does NOT decide tool_choice (Snowflake agent orchestration decides tools).
+This router selects WHICH Snowflake agent object(s) to invoke (by domain).
+It does NOT execute tools. Tool orchestration is done by the Snowflake agent.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+from pathlib import Path
+import yaml
 from shared.utils.exceptions import AgentRoutingError
 from shared.config.settings import settings
 
@@ -17,16 +19,27 @@ class AgentRouter:
     
     def __init__(self):
         """Initialize the agent router."""
-        # Keywords for routing decisions
-        self.analyst_keywords = [
-            "query", "sql", "table", "data", "database", "analyze",
-            "report", "statistics", "aggregate", "sum", "count", "average"
-        ]
-        self.search_keywords = [
-            "search", "find", "document", "pdf", "ppt", "presentation",
-            "file", "content", "text", "unstructured"
-        ]
+        self.registry_path = Path(__file__).resolve().parents[2] / "config" / "agents.yaml"
+        self.domain_agents = self._load_domain_agents()
         logger.info("Initialized Agent Router")
+
+    def _load_domain_agents(self) -> List[Dict[str, Any]]:
+        """Load domain agent registry from config/agents.yaml."""
+        try:
+            if not self.registry_path.exists():
+                logger.warning(f"Domain agent registry not found at {self.registry_path}")
+                return []
+            data = yaml.safe_load(self.registry_path.read_text()) or {}
+            agents = data.get("agents", []) or []
+            # Keep only enabled agents with an agent_name
+            enabled = [
+                a for a in agents
+                if isinstance(a, dict) and a.get("enabled", True) and a.get("agent_name")
+            ]
+            return enabled
+        except Exception as e:
+            logger.error(f"Failed to load domain agent registry: {e}")
+            return []
     
     def route_request(
         self,
@@ -50,111 +63,78 @@ class AgentRouter:
         """
         try:
             query_lower = query.lower()
-            
-            # Resolve configured Snowflake agent object names
-            analyst_agent = settings.snowflake.cortex_agent_name_analyst
-            search_agent = settings.snowflake.cortex_agent_name_search
-            combined_agent = settings.snowflake.cortex_agent_name_combined or settings.snowflake.cortex_agent_name
 
-            if not combined_agent and not analyst_agent and not search_agent:
-                raise AgentRoutingError(
-                    "No Snowflake agent objects configured. Set SNOWFLAKE_CORTEX_AGENT_NAME[_COMBINED] "
-                    "or SNOWFLAKE_CORTEX_AGENT_NAME_ANALYST/SEARCH."
-                )
+            if not self.domain_agents:
+                # Fallback to a single configured default agent object name
+                default_agent = settings.snowflake.cortex_agent_name
+                if not default_agent:
+                    raise AgentRoutingError(
+                        "No domain agents configured (config/agents.yaml) and no default SNOWFLAKE_CORTEX_AGENT_NAME set."
+                    )
+                return {
+                    "agents_to_call": [default_agent],
+                    "routing_reason": "No domain registry; using default Snowflake agent",
+                    "confidence": 0.5,
+                }
 
             # Check for explicit agent preference (expects an agent name or keywords)
             if agent_preference:
                 pref = agent_preference.strip()
-                if pref in (analyst_agent, search_agent, combined_agent):
-                    return {
-                        "agents_to_call": [pref],
-                        "routing_reason": f"Explicit agent preference (agent object): {pref}",
-                        "confidence": 1.0,
-                    }
-                # keyword-based preference fallback
-                if "analyst" in pref.lower() and analyst_agent:
-                    return {
-                        "agents_to_call": [analyst_agent],
-                        "routing_reason": "Explicit agent preference: analyst",
-                        "confidence": 1.0,
-                    }
-                if "search" in pref.lower() and search_agent:
-                    return {
-                        "agents_to_call": [search_agent],
-                        "routing_reason": "Explicit agent preference: search",
-                        "confidence": 1.0,
-                    }
-                if "combined" in pref.lower() and combined_agent:
-                    return {
-                        "agents_to_call": [combined_agent],
-                        "routing_reason": "Explicit agent preference: combined",
-                        "confidence": 1.0,
-                    }
-            
-            # Analyze query for routing
-            analyst_score = self._score_analyst_query(query_lower)
-            search_score = self._score_search_query(query_lower)
-            
-            # Check context for hints
-            if context:
-                if context.get("data_type") == "structured":
-                    analyst_score += 0.5
-                elif context.get("data_type") == "unstructured":
-                    search_score += 0.5
-            
-            # Decide which Snowflake agent object(s) to call.
-            # - If a combined agent object exists, prefer it for ambiguous queries.
-            # - Otherwise call multiple specialized agents.
+
+                # If pref matches an agent_name directly, honor it.
+                for a in self.domain_agents:
+                    if pref == a.get("agent_name") or pref == a.get("domain"):
+                        return {
+                            "agents_to_call": [a["agent_name"]],
+                            "routing_reason": f"Explicit agent preference: {pref}",
+                            "confidence": 1.0,
+                        }
+
+            # Domain-based scoring: keyword matches + optional explicit context.domain
+            context_domain = (context or {}).get("domain")
+            scored: List[Dict[str, Any]] = []
+            for a in self.domain_agents:
+                keywords = [k.lower() for k in (a.get("keywords") or []) if isinstance(k, str)]
+                matches = sum(1 for k in keywords if k in query_lower)
+                score = 0.0
+                if keywords:
+                    score += (matches / max(len(keywords), 1)) * 1.0
+                # Boost if caller provides explicit domain
+                if context_domain and isinstance(context_domain, str) and context_domain.lower() == str(a.get("domain", "")).lower():
+                    score += 0.75
+                scored.append({"agent": a, "score": min(score, 1.0), "matches": matches})
+
+            scored.sort(key=lambda x: x["score"], reverse=True)
+
+            # Multi-agent orchestration rule:
+            # - Call the top agent always if it has any signal
+            # - Also call the next agent if it's close (within 0.15) and non-trivial
+            top = scored[0]
             agents_to_call = []
-            if analyst_score > search_score and analyst_score > 0.3 and analyst_agent:
-                agents_to_call = [analyst_agent]
-                reason = f"Structured intent detected; calling analyst agent (score: {analyst_score:.2f})"
-                confidence = min(analyst_score, 1.0)
-            elif search_score > analyst_score and search_score > 0.3 and search_agent:
-                agents_to_call = [search_agent]
-                reason = f"Unstructured intent detected; calling search agent (score: {search_score:.2f})"
-                confidence = min(search_score, 1.0)
+            if top["score"] >= 0.2:
+                agents_to_call.append(top["agent"]["agent_name"])
+                reason = f"Domain match to '{top['agent'].get('domain')}' (score={top['score']:.2f})"
+                confidence = top["score"]
             else:
-                # Ambiguous: call combined if available; else call both available agents.
-                if combined_agent:
-                    agents_to_call = [combined_agent]
-                    reason = "Ambiguous intent; calling combined agent"
-                    confidence = 0.5
-                else:
-                    if analyst_agent:
-                        agents_to_call.append(analyst_agent)
-                    if search_agent:
-                        agents_to_call.append(search_agent)
-                    reason = "Ambiguous intent; calling multiple agents"
-                    confidence = 0.5
-            
+                # No strong signal: call all enabled agents (or first N) to let Snowflake decide
+                agents_to_call = [a["agent_name"] for a in self.domain_agents[:2]]
+                reason = "No strong domain signal; calling multiple domain agents"
+                confidence = 0.4
+
+            if len(scored) > 1:
+                second = scored[1]
+                if second["score"] >= 0.2 and abs(top["score"] - second["score"]) <= 0.15:
+                    if second["agent"]["agent_name"] not in agents_to_call:
+                        agents_to_call.append(second["agent"]["agent_name"])
+                        reason += f"; also calling '{second['agent'].get('domain')}' (score={second['score']:.2f})"
+
             logger.info(f"Routed request to agents={agents_to_call}: {reason}")
-            
-            return {
-                "agents_to_call": agents_to_call,
-                "routing_reason": reason,
-                "confidence": confidence,
-                "scores": {"analyst": analyst_score, "search": search_score},
-            }
+            return {"agents_to_call": agents_to_call, "routing_reason": reason, "confidence": confidence}
             
         except Exception as e:
             logger.error(f"Error routing request: {str(e)}")
             raise AgentRoutingError(f"Failed to route request: {str(e)}") from e
-    
-    def _score_analyst_query(self, query: str) -> float:
-        """Score how well a query matches analyst agent."""
-        score = 0.0
-        matches = sum(1 for keyword in self.analyst_keywords if keyword in query)
-        score = matches / len(self.analyst_keywords) * 2.0  # Normalize
-        return min(score, 1.0)
-    
-    def _score_search_query(self, query: str) -> float:
-        """Score how well a query matches search agent."""
-        score = 0.0
-        matches = sum(1 for keyword in self.search_keywords if keyword in query)
-        score = matches / len(self.search_keywords) * 2.0  # Normalize
-        return min(score, 1.0)
-    
+
 # Global router instance
 agent_router = AgentRouter()
 

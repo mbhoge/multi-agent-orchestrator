@@ -25,88 +25,25 @@ This guide explains how to test the Snowflake Cortex AI components independently
    pip install snowflake-connector-python snowflake-snowpark-python
    ```
 
-## Testing Snowflake Cortex AI Analyst
+## Testing via Snowflake Cortex Agents Run (Recommended)
 
-The Analyst component converts natural language queries to SQL and executes them.
+The current system design uses **Snowflake Cortex Agent objects** invoked via the
+**Cortex Agents Run REST API**. The gateway service (`snowflake_cortex/gateway/api.py`)
+is the only Snowflake-facing component you need to test locally.
 
-### Using the Test Script
+### Using the Gateway Test Script
 
 ```bash
-# Option 1: Using the shell script
-./scripts/test_analyst.sh
-
-# Option 2: Direct Python execution
-python tests/snowflake/test_analyst.py
+# Option 1: Direct Python execution
+python tests/snowflake/test_gateway.py
 ```
 
 ### What It Tests
 
-- Snowflake connection establishment
-- SQL generation from natural language queries
-- Query execution in Snowflake
-- Result formatting
-
-### Expected Output
-
-```
-============================================================
-Testing Snowflake Cortex AI Analyst
-============================================================
-
-✓ Snowflake configuration found
-  Account: your-account
-  User: your-user
-  Warehouse: your-warehouse
-  Database: your-database
-  Schema: PUBLIC
-
-------------------------------------------------------------
-Initializing Cortex AI Analyst...
-✓ Analyst initialized
-
-============================================================
-Test Query 1: What are the total sales?
-============================================================
-
-✓ Query processed successfully
-
-Generated SQL:
-  SELECT SUM(amount) as total FROM sales;
-
-Response:
-  Found 1 result(s) for your query:
-  Result 1: {'total': 1234567.89}
-```
-
-### Troubleshooting
-
-- **Connection Error**: Verify Snowflake credentials in `.env`
-- **Cortex AI Not Available**: Ensure Cortex AI is enabled in your Snowflake account
-- **Permission Error**: Check that your user has permissions to use Cortex AI functions
-
-## Testing Snowflake Cortex AI Search
-
-The Search component searches unstructured data (PDFs, PPTs, etc.) in Snowflake stages.
-
-### Using the Test Script
-
-```bash
-# Option 1: Using the shell script
-./scripts/test_search.sh
-
-# Option 2: Direct Python execution
-python tests/snowflake/test_search.py
-
-# Option 3: With custom stage path
-SNOWFLAKE_STAGE_PATH=@my_custom_stage python tests/snowflake/test_search.py
-```
-
-### What It Tests
-
-- Snowflake connection establishment
-- Stage file listing
-- Document search using Cortex AI Search
-- Result formatting with relevance scores
+- Gateway health
+- `/agents/invoke` calling Snowflake `/api/v2/.../agents/{agent_name}:run`
+- `messages[]` built from history
+- `tool_choice: {"type":"auto"}` (unless overridden via `context.tool_choice`)
 
 ### Expected Output
 
@@ -255,6 +192,57 @@ curl -X POST http://localhost:8002/agents/invoke \
 curl http://localhost:8002/prompts/supervisor_routing
 ```
 
+### Direct `agent:run` mode (no agent object) with `tool_resources` (concrete example)
+
+Use this when you want to call Snowflake `POST /api/v2/cortex/agent:run` **directly** (without a Snowflake agent object),
+and provide tool configuration in the request body. This follows Snowflake’s tool schema:
+[`ToolResource` reference](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-run#toolresource).
+
+**Request (to this project’s gateway)**:
+
+```bash
+curl -X POST http://localhost:8002/agents/invoke \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_name": "direct",
+    "query": "For 2023, what is total revenue? Also provide relevant supporting documents.",
+    "session_id": "session-789",
+    "context": {
+      "domain": "market_segment",
+      "history": [
+        {"role": "user", "content": "We are analyzing 2023 performance."},
+        {"role": "assistant", "content": "Okay—what metric do you need?"}
+      ],
+      "tool_choice": {"type": "auto", "name": ["analyst_tool", "search_tool"]},
+      "tool_resources": {
+        "analyst_tool": {
+          "semantic_model_file": "@DB.SCHEMA.STAGE/semantic_model.yaml",
+          "execution_environment": {
+            "type": "warehouse",
+            "warehouse": "MY_WAREHOUSE",
+            "query_timeout": 60
+          }
+        },
+        "search_tool": {
+          "search_service": "DB.SCHEMA.MY_SEARCH_SERVICE",
+          "title_column": "account_name",
+          "id_column": "account_id",
+          "filter": {
+            "@eq": {
+              "year": 2023
+            }
+          }
+        }
+      }
+    }
+  }'
+```
+
+**What happens:**
+- The gateway detects `context.tool_resources` and routes the call to Snowflake `POST /api/v2/cortex/agent:run`
+- The gateway builds `messages[]` from `context.history` + current `query`
+- Snowflake orchestrates tool usage automatically (constrained to the provided tool names if you set `tool_choice.name`)
+
 ### API Endpoints
 
 - `GET /health` - Health check
@@ -267,17 +255,7 @@ curl http://localhost:8002/prompts/supervisor_routing
 
 Recommended testing order:
 
-1. **First**: Test Analyst component
-   ```bash
-   ./scripts/test_analyst.sh
-   ```
-
-2. **Second**: Test Search component
-   ```bash
-   ./scripts/test_search.sh
-   ```
-
-3. **Third**: Test Gateway (which uses both)
+1. **First**: Test the Snowflake Gateway (Agents Run REST API)
    ```bash
    ./scripts/test_gateway.sh
    ```

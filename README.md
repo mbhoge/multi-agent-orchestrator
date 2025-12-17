@@ -273,7 +273,7 @@ Prompts support variable substitution using `{variable_name}` syntax. Common var
 
 ### Adding New Tools
 
-1. Create tool class in `snowflake_cortex/tools/`
+1. Define a Snowflake tool in the Snowflake agent object configuration (preferred), or provide `tool_specs`/`tool_resources` when calling `POST /api/v2/cortex/agent:run` (no agent object)
 2. Integrate with agent in `snowflake_cortex/agents/cortex_agent.py`
 3. Add tests
 

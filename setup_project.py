@@ -40,7 +40,7 @@ class ProjectSetup:
             "snowflake_cortex/gateway",
             "snowflake_cortex/observability",
             "snowflake_cortex/semantic_models",
-            "snowflake_cortex/tools",
+            # snowflake_cortex/tools removed (tools are Snowflake-managed via agent objects or tool_specs/tool_resources)
             "shared/config",
             "shared/models",
             "shared/utils",
@@ -102,7 +102,7 @@ class ProjectSetup:
             "snowflake_cortex/gateway/__init__.py",
             "snowflake_cortex/observability/__init__.py",
             "snowflake_cortex/semantic_models/__init__.py",
-            "snowflake_cortex/tools/__init__.py",
+            # snowflake_cortex/tools/__init__.py removed
             "shared/__init__.py",
             "shared/config/__init__.py",
             "shared/models/__init__.py",

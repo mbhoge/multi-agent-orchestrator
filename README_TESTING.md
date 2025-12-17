@@ -2,61 +2,7 @@
 
 ## Testing Snowflake Cortex AI Components
 
-### 1. Test Snowflake Cortex AI Analyst
-
-**Command:**
-```bash
-./scripts/test_analyst.sh
-```
-
-**Or directly:**
-```bash
-python tests/snowflake/test_analyst.py
-```
-
-**What it does:**
-- Connects to Snowflake
-- Converts natural language queries to SQL using Cortex AI Analyst
-- Executes SQL queries
-- Displays results
-
-**Requirements:**
-- Snowflake credentials in `.env` file
-- Cortex AI enabled in Snowflake account
-
----
-
-### 2. Test Snowflake Cortex AI Search
-
-**Command:**
-```bash
-./scripts/test_search.sh
-```
-
-**Or directly:**
-```bash
-python tests/snowflake/test_search.py
-```
-
-**With custom stage:**
-```bash
-SNOWFLAKE_STAGE_PATH=@my_stage python tests/snowflake/test_search.py
-```
-
-**What it does:**
-- Connects to Snowflake
-- Searches unstructured data in Snowflake stages
-- Uses Cortex AI Search function
-- Displays search results with relevance scores
-
-**Requirements:**
-- Snowflake credentials in `.env` file
-- A Snowflake stage with documents
-- Cortex AI Search enabled
-
----
-
-### 3. Test Snowflake Cortex AI Agent Gateway
+### 1. Test Snowflake Cortex AI Agent Gateway (Agents Run REST)
 
 **Step 1: Start the Gateway**
 ```bash
@@ -79,9 +25,7 @@ python tests/snowflake/test_gateway.py
 
 **What it tests:**
 - Gateway health endpoint
-- Analyst agent via API
-- Search agent via API
-- Combined agent via API
+- Snowflake agent object(s) via Agents Run REST API
 - Prompt management endpoints
 
 **Manual Testing with curl:**
