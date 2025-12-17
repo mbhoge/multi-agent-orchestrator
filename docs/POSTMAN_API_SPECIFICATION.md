@@ -74,7 +74,7 @@ Accept: application/json
 | `query` | string | **Yes** | User query or request | `"What are the total sales for last month?"` |
 | `session_id` | string | No | Session ID for state management | `"session-123"` |
 | `context` | object | No | Additional context for the request | `{"data_type": "structured"}` |
-| `agent_preference` | string | No | Preferred agent to handle the request | `"cortex_analyst"` |
+| `agent_preference` | string | No | Preferred Snowflake agent object name or keyword (analyst/search/combined) | `"MY_ANALYST_AGENT"` |
 | `metadata` | object | No | Request metadata | `{"user_id": "user-123", "request_id": "req-456"}` |
 
 ### Example Request 1: Basic Query
@@ -582,3 +582,6 @@ Currently, there are no rate limits. For production, consider implementing:
 3. **Context:** Provide relevant context to improve routing and response quality
 4. **Metadata:** Use metadata to track requests across your system
 5. **Error Handling:** Always check the response status code and handle errors appropriately
+
+
+

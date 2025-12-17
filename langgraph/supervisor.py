@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 from fastapi import FastAPI, HTTPException
 from shared.config.settings import settings
 from shared.models.request import AgentRequest
-from shared.models.agent_state import AgentState, RequestStatus, AgentType
+from shared.models.agent_state import AgentState, RequestStatus
 from shared.utils.exceptions import LangGraphError
 from langgraph.state.state_manager import state_manager
 from langgraph.memory.short_term import short_term_memory
@@ -48,6 +48,21 @@ class LangGraphSupervisor:
         try:
             logger.info(f"Processing request in LangGraph supervisor: session={session_id}")
             
+            # Retrieve prior conversation history (short-term, per session)
+            # Stored as a list of {role, content, ts} dicts.
+            history = short_term_memory.retrieve(session_id=session_id, key="history") or []
+            if not isinstance(history, list):
+                history = []
+
+            # Append the current user message to history
+            history.append(
+                {
+                    "role": "user",
+                    "content": request.query,
+                    "ts": time.time(),
+                }
+            )
+
             # Initialize or retrieve state
             state = state_manager.get_state(session_id)
             if not state:
@@ -78,7 +93,6 @@ class LangGraphSupervisor:
             
             # Update state with routing decision
             state_manager.update_state(session_id, {
-                "selected_agent": routing_decision["selected_agent"],
                 "routing_reason": routing_decision["routing_reason"],
                 "current_step": "agent_invocation"
             })
@@ -92,18 +106,86 @@ class LangGraphSupervisor:
             short_term_memory.store(
                 session_id=session_id,
                 key="routing_decision",
-                value=routing_decision
+                value=routing_decision,
             )
-            
-            # Invoke Snowflake Cortex AI agent via gateway
-            # This would be done via HTTP call to the Snowflake agent service
-            agent_response = await self._invoke_snowflake_agent(
-                agent_type=routing_decision["selected_agent"],
-                query=request.query,
+
+            # Persist updated history (keep a bounded window to avoid unbounded growth)
+            max_history = 30  # messages
+            short_term_memory.store(
                 session_id=session_id,
-                context=request.context
+                key="history",
+                value=history[-max_history:],
             )
+
+            # Build an enriched context sent to downstream agents
+            # - Include the most recent history window
+            # - Include state snapshot and memory snapshot (bounded/serializable)
+            state_snapshot = None
+            try:
+                # AgentState is pydantic; model_dump() yields JSON-friendly dict
+                state_snapshot = state.model_dump()
+            except Exception:
+                state_snapshot = {"session_id": session_id}
+
+            enriched_context = {
+                **(request.context or {}),
+                "history": history[-max_history:],
+                "langgraph": {
+                    "state": state_snapshot,
+                    "short_term_memory": short_term_memory.get_all(session_id=session_id),
+                },
+            }
             
+            # Invoke one or more Snowflake Cortex Agents via gateway.
+            # LangGraph acts as the orchestrator here (it does NOT decide tool_choice).
+            agent_names = routing_decision.get("agents_to_call", []) or []
+            if not isinstance(agent_names, list) or not agent_names:
+                raise LangGraphError("No Snowflake agent objects selected for invocation.")
+
+            agent_responses = []
+            for agent_name in agent_names:
+                agent_responses.append(
+                    await self._invoke_snowflake_agent(
+                        agent_name=agent_name,
+                        query=request.query,
+                        session_id=session_id,
+                        context=enriched_context,
+                    )
+                )
+
+            # Combine responses if multiple agents were called
+            if len(agent_responses) == 1:
+                agent_response = agent_responses[0]
+            else:
+                combined_text = "\n\n".join(
+                    [
+                        f"[{r.get('agent_name', 'agent')}] {r.get('response', '')}"
+                        for r in agent_responses
+                    ]
+                ).strip()
+                combined_sources = []
+                for r in agent_responses:
+                    combined_sources.extend(r.get("sources", []) or [])
+                agent_response = {
+                    "response": combined_text,
+                    "sources": combined_sources,
+                    "agents": [r.get("agent_name") for r in agent_responses],
+                }
+            
+            # Append assistant response to history
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": agent_response.get("response", ""),
+                    "ts": time.time(),
+                }
+            )
+            short_term_memory.store(
+                session_id=session_id,
+                key="history",
+                value=history[-max_history:],
+            )
+
             # Update state with response
             state_manager.update_state(session_id, {
                 "status": RequestStatus.COMPLETED,
@@ -134,7 +216,7 @@ class LangGraphSupervisor:
             
             return {
                 "response": agent_response.get("response", ""),
-                "selected_agent": routing_decision["selected_agent"].value,
+                "selected_agent": ",".join(agent_names),
                 "routing_reason": routing_decision["routing_reason"],
                 "confidence": routing_decision.get("confidence", 0.5),
                 "sources": agent_response.get("sources", []),
@@ -156,7 +238,7 @@ class LangGraphSupervisor:
     
     async def _invoke_snowflake_agent(
         self,
-        agent_type: AgentType,
+        agent_name: str,
         query: str,
         session_id: str,
         context: Optional[Dict[str, Any]] = None
@@ -175,7 +257,7 @@ class LangGraphSupervisor:
         """
         # This would make an HTTP call to the Snowflake Cortex agent service
         # For now, return a placeholder response
-        logger.info(f"Invoking Snowflake agent {agent_type.value} for session {session_id}")
+        logger.info(f"Invoking Snowflake agent object {agent_name} for session {session_id}")
         
         # Make HTTP call to the Snowflake Cortex agent service
         import httpx
@@ -184,10 +266,13 @@ class LangGraphSupervisor:
                 response = await client.post(
                     f"{settings.snowflake.cortex_agent_gateway_endpoint}/agents/invoke",
                     json={
-                        "agent_type": agent_type.value,
+                        "agent_name": agent_name,
                         "query": query,
                         "session_id": session_id,
-                        "context": context or {}
+                        # Backward compatible: context contains history + state snapshots
+                        "context": context or {},
+                        # Forward compatible: also provide dedicated history field if present
+                        "history": (context or {}).get("history", []),
                     }
                 )
                 response.raise_for_status()
@@ -195,7 +280,7 @@ class LangGraphSupervisor:
         except Exception as e:
             logger.warning(f"Failed to invoke Snowflake agent via gateway: {str(e)}. Using fallback response.")
             return {
-                "response": f"Response from {agent_type.value} agent for query: {query[:50]}...",
+                "response": f"Response from {agent_name} agent for query: {query[:50]}...",
                 "sources": []
             }
 

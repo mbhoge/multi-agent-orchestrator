@@ -63,6 +63,52 @@ class SnowflakeSettings(BaseSettings):
     snowflake_database: Optional[str] = Field(default=None, description="Snowflake database")
     snowflake_schema: str = Field(default="PUBLIC", description="Snowflake schema")
     snowflake_role: Optional[str] = Field(default=None, description="Snowflake role")
+    snowflake_api_host: Optional[str] = Field(
+        default=None,
+        description="Snowflake account URL, e.g. https://<account>.snowflakecomputing.com",
+    )
+    snowflake_auth_token: Optional[str] = Field(
+        default=None,
+        description="Bearer token for Snowflake REST APIs (OAuth/token-based auth)",
+    )
+
+    # Cortex Agents Run API config (agent object path form)
+    cortex_agents_database: Optional[str] = Field(
+        default=None,
+        description="Snowflake database containing the Cortex Agent object",
+    )
+    cortex_agents_schema: Optional[str] = Field(
+        default=None,
+        description="Snowflake schema containing the Cortex Agent object",
+    )
+    cortex_agent_name: Optional[str] = Field(
+        default=None,
+        description="Cortex Agent object name to call via :run",
+    )
+
+    # Optional: multiple Snowflake agent objects (used when LangGraph orchestrates multiple agent runs)
+    cortex_agent_name_analyst: Optional[str] = Field(
+        default=None,
+        description="Cortex Agent object name specialized for structured data (analyst)",
+    )
+    cortex_agent_name_search: Optional[str] = Field(
+        default=None,
+        description="Cortex Agent object name specialized for unstructured search",
+    )
+    cortex_agent_name_combined: Optional[str] = Field(
+        default=None,
+        description="Cortex Agent object name that can use both analyst and search tools",
+    )
+
+    # Tool names (must match the agent's configured tool identifiers)
+    cortex_tool_names_analyst: str = Field(
+        default="analyst_tool",
+        description="Tool name for analyst tool in Cortex Agents",
+    )
+    cortex_tool_names_search: str = Field(
+        default="search_tool",
+        description="Tool name for search tool in Cortex Agents",
+    )
     cortex_agent_gateway_endpoint: Optional[str] = Field(
         default="http://snowflake-cortex:8002",
         description="Snowflake Cortex AI Agent Gateway endpoint"

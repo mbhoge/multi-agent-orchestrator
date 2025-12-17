@@ -1,77 +1,53 @@
-"""Unit tests for Snowflake Cortex components."""
+"""Unit tests for Snowflake Cortex components.
+
+Note: The project now invokes Snowflake Cortex Agents via the Cortex Agents Run REST API
+through `snowflake_cortex.gateway.agent_gateway.CortexAgentGateway`. The legacy local
+`CortexAgent` implementation has been removed.
+"""
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
-from snowflake_cortex.agents.cortex_agent import CortexAgent
-from snowflake_cortex.tools.analyst import CortexAnalyst
-from snowflake_cortex.tools.search import CortexSearch
-from shared.models.agent_state import AgentType
-
-
-@pytest.fixture
-def mock_cortex_agent():
-    """Mock Cortex agent."""
-    with patch('snowflake_cortex.agents.cortex_agent.CortexAnalyst'), \
-         patch('snowflake_cortex.agents.cortex_agent.CortexSearch'), \
-         patch('snowflake_cortex.agents.cortex_agent.TruLensClient'):
-        return CortexAgent(AgentType.CORTEX_ANALYST)
+from unittest.mock import patch, AsyncMock
+from snowflake_cortex.gateway.agent_gateway import CortexAgentGateway
 
 
 @pytest.mark.asyncio
-async def test_cortex_agent_process_query(mock_cortex_agent):
-    """Test Cortex agent query processing."""
-    with patch.object(mock_cortex_agent.analyst, 'analyze_query', new_callable=AsyncMock) as mock_analyst:
-        mock_analyst.return_value = {
-            "response": "Analyst response",
-            "sources": []
-        }
-        
-        result = await mock_cortex_agent.process_query(
-            query="Test query",
-            session_id="test-session"
-        )
-        
-        assert "response" in result
-        assert mock_analyst.called
+async def test_agents_run_gateway_builds_messages_from_history():
+    """Test that Agents Run gateway builds correct messages list from context history."""
+    gw = CortexAgentGateway()
+
+    history = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi there"},
+    ]
+
+    messages = gw._build_messages(query="What's next?", history=history)  # type: ignore[attr-defined]
+    assert isinstance(messages, list)
+    assert messages[0]["role"] == "user"
+    assert messages[1]["role"] == "assistant"
+    assert messages[-1]["role"] == "user"
 
 
 @pytest.mark.asyncio
-async def test_cortex_analyst_analyze_query():
-    """Test Cortex Analyst query analysis."""
-    with patch('snowflake_cortex.tools.analyst.SemanticModelLoader'), \
-         patch('snowflake_cortex.tools.analyst.snowflake.connector'):
-        analyst = CortexAnalyst()
-        
-        with patch.object(analyst, '_convert_to_sql', new_callable=AsyncMock) as mock_convert, \
-             patch.object(analyst, '_execute_query', new_callable=AsyncMock) as mock_execute:
-            mock_convert.return_value = "SELECT * FROM table"
-            mock_execute.return_value = [{"column1": "value1"}]
-            
-            result = await analyst.analyze_query(
-                query="Test query",
-                session_id="test-session"
+async def test_agents_run_gateway_sse_parser_accumulates_text():
+    """Test SSE parsing glue by stubbing _post_sse."""
+    gw = CortexAgentGateway()
+    with patch.object(gw, "_post_sse", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = ("final answer", [{"response": {"text": {"delta": "final answer"}}}])
+
+        # Patch auth/host resolution to avoid config dependency
+        with patch.object(gw, "_snowflake_api_base", return_value="https://example.snowflakecomputing.com"), \
+             patch.object(gw, "_auth_headers", return_value={"Authorization": "Bearer x"}):
+            # Provide required db/schema for agent object url path
+            gw.snowflake_config.cortex_agents_database = "DB"
+            gw.snowflake_config.cortex_agents_schema = "SCHEMA"
+
+            result = await gw.invoke_agent(
+                agent_name="MY_AGENT",
+                query="Q",
+                session_id="S",
+                context={"history": [{"role": "user", "content": "hi"}]},
             )
-            
-            assert "response" in result
-            assert "sql_query" in result
 
-
-@pytest.mark.asyncio
-async def test_cortex_search_search_query():
-    """Test Cortex Search query."""
-    with patch('snowflake_cortex.tools.search.snowflake.connector'):
-        search = CortexSearch()
-        
-        with patch.object(search, '_perform_search', new_callable=AsyncMock) as mock_search:
-            mock_search.return_value = [
-                {"file": "test.pdf", "content": "Test content", "score": 0.9}
-            ]
-            
-            result = await search.search_query(
-                query="Test query",
-                session_id="test-session"
-            )
-            
-            assert "response" in result
-            assert "sources" in result
+        assert result["response"] == "final answer"
+        assert result["agent_name"] == "MY_AGENT"
 

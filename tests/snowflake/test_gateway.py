@@ -3,6 +3,7 @@
 import asyncio
 import sys
 import httpx
+import os
 from pathlib import Path
 
 # Add project root to path
@@ -18,6 +19,22 @@ setup_logging(log_level="INFO")
 logger = logging.getLogger(__name__)
 
 GATEWAY_URL = "http://localhost:8002"
+
+def _env(name: str, default: str) -> str:
+    val = os.getenv(name)
+    return val.strip() if isinstance(val, str) and val.strip() else default
+
+
+def get_agent_names() -> dict:
+    """
+    Resolve Snowflake Cortex Agent object names from env vars.
+    These should match the Snowflake agent object names created in your DB/SCHEMA.
+    """
+    return {
+        "analyst": _env("SNOWFLAKE_CORTEX_AGENT_NAME_ANALYST", "CORTEX_ANALYST_AGENT"),
+        "search": _env("SNOWFLAKE_CORTEX_AGENT_NAME_SEARCH", "CORTEX_SEARCH_AGENT"),
+        "combined": _env("SNOWFLAKE_CORTEX_AGENT_NAME_COMBINED", _env("SNOWFLAKE_CORTEX_AGENT_NAME", "CORTEX_COMBINED_AGENT")),
+    }
 
 
 async def test_gateway_health():
@@ -41,8 +58,9 @@ async def test_analyst_agent():
     print("Testing Cortex Analyst Agent")
     print("=" * 60)
     
+    agent_names = get_agent_names()
     test_query = {
-        "agent_type": "cortex_analyst",
+        "agent_name": agent_names["analyst"],
         "query": "What are the total sales?",
         "session_id": "test-session-analyst",
         "context": {}
@@ -83,8 +101,9 @@ async def test_search_agent():
     print("Testing Cortex Search Agent")
     print("=" * 60)
     
+    agent_names = get_agent_names()
     test_query = {
-        "agent_type": "cortex_search",
+        "agent_name": agent_names["search"],
         "query": "machine learning",
         "session_id": "test-session-search",
         "context": {
@@ -125,8 +144,9 @@ async def test_combined_agent():
     print("Testing Combined Agent")
     print("=" * 60)
     
+    agent_names = get_agent_names()
     test_query = {
-        "agent_type": "cortex_combined",
+        "agent_name": agent_names["combined"],
         "query": "Show me sales data and related documents",
         "session_id": "test-session-combined",
         "context": {}

@@ -1,15 +1,19 @@
-"""Request routing logic to Snowflake agents."""
+"""Request routing logic to Snowflake Cortex Agent objects.
+
+This router selects WHICH Snowflake agent object(s) to invoke.
+It does NOT decide tool_choice (Snowflake agent orchestration decides tools).
+"""
 
 import logging
 from typing import Dict, Any, Optional
-from shared.models.agent_state import AgentType
 from shared.utils.exceptions import AgentRoutingError
+from shared.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
 class AgentRouter:
-    """Routes requests to appropriate Snowflake Cortex AI agents."""
+    """Routes requests to appropriate Snowflake Cortex Agent objects."""
     
     def __init__(self):
         """Initialize the agent router."""
@@ -39,7 +43,7 @@ class AgentRouter:
             agent_preference: Optional preferred agent
         
         Returns:
-            Routing decision with selected agent and reason
+            Routing decision with agents_to_call (list of agent names) and reason
         
         Raises:
             AgentRoutingError: If routing fails
@@ -47,14 +51,44 @@ class AgentRouter:
         try:
             query_lower = query.lower()
             
-            # Check for explicit agent preference
+            # Resolve configured Snowflake agent object names
+            analyst_agent = settings.snowflake.cortex_agent_name_analyst
+            search_agent = settings.snowflake.cortex_agent_name_search
+            combined_agent = settings.snowflake.cortex_agent_name_combined or settings.snowflake.cortex_agent_name
+
+            if not combined_agent and not analyst_agent and not search_agent:
+                raise AgentRoutingError(
+                    "No Snowflake agent objects configured. Set SNOWFLAKE_CORTEX_AGENT_NAME[_COMBINED] "
+                    "or SNOWFLAKE_CORTEX_AGENT_NAME_ANALYST/SEARCH."
+                )
+
+            # Check for explicit agent preference (expects an agent name or keywords)
             if agent_preference:
-                agent_type = self._parse_agent_preference(agent_preference)
-                if agent_type:
+                pref = agent_preference.strip()
+                if pref in (analyst_agent, search_agent, combined_agent):
                     return {
-                        "selected_agent": agent_type,
-                        "routing_reason": f"Explicit agent preference: {agent_preference}",
-                        "confidence": 1.0
+                        "agents_to_call": [pref],
+                        "routing_reason": f"Explicit agent preference (agent object): {pref}",
+                        "confidence": 1.0,
+                    }
+                # keyword-based preference fallback
+                if "analyst" in pref.lower() and analyst_agent:
+                    return {
+                        "agents_to_call": [analyst_agent],
+                        "routing_reason": "Explicit agent preference: analyst",
+                        "confidence": 1.0,
+                    }
+                if "search" in pref.lower() and search_agent:
+                    return {
+                        "agents_to_call": [search_agent],
+                        "routing_reason": "Explicit agent preference: search",
+                        "confidence": 1.0,
+                    }
+                if "combined" in pref.lower() and combined_agent:
+                    return {
+                        "agents_to_call": [combined_agent],
+                        "routing_reason": "Explicit agent preference: combined",
+                        "confidence": 1.0,
                     }
             
             # Analyze query for routing
@@ -68,31 +102,39 @@ class AgentRouter:
                 elif context.get("data_type") == "unstructured":
                     search_score += 0.5
             
-            # Make routing decision
-            if analyst_score > search_score and analyst_score > 0.3:
-                selected_agent = AgentType.CORTEX_ANALYST
-                reason = f"Query appears to be for structured data analysis (score: {analyst_score:.2f})"
+            # Decide which Snowflake agent object(s) to call.
+            # - If a combined agent object exists, prefer it for ambiguous queries.
+            # - Otherwise call multiple specialized agents.
+            agents_to_call = []
+            if analyst_score > search_score and analyst_score > 0.3 and analyst_agent:
+                agents_to_call = [analyst_agent]
+                reason = f"Structured intent detected; calling analyst agent (score: {analyst_score:.2f})"
                 confidence = min(analyst_score, 1.0)
-            elif search_score > analyst_score and search_score > 0.3:
-                selected_agent = AgentType.CORTEX_SEARCH
-                reason = f"Query appears to be for unstructured data search (score: {search_score:.2f})"
+            elif search_score > analyst_score and search_score > 0.3 and search_agent:
+                agents_to_call = [search_agent]
+                reason = f"Unstructured intent detected; calling search agent (score: {search_score:.2f})"
                 confidence = min(search_score, 1.0)
             else:
-                # Default to combined agent for ambiguous queries
-                selected_agent = AgentType.CORTEX_COMBINED
-                reason = "Query is ambiguous, using combined agent"
-                confidence = 0.5
+                # Ambiguous: call combined if available; else call both available agents.
+                if combined_agent:
+                    agents_to_call = [combined_agent]
+                    reason = "Ambiguous intent; calling combined agent"
+                    confidence = 0.5
+                else:
+                    if analyst_agent:
+                        agents_to_call.append(analyst_agent)
+                    if search_agent:
+                        agents_to_call.append(search_agent)
+                    reason = "Ambiguous intent; calling multiple agents"
+                    confidence = 0.5
             
-            logger.info(f"Routed request to {selected_agent.value}: {reason}")
+            logger.info(f"Routed request to agents={agents_to_call}: {reason}")
             
             return {
-                "selected_agent": selected_agent,
+                "agents_to_call": agents_to_call,
                 "routing_reason": reason,
                 "confidence": confidence,
-                "scores": {
-                    "analyst": analyst_score,
-                    "search": search_score
-                }
+                "scores": {"analyst": analyst_score, "search": search_score},
             }
             
         except Exception as e:
@@ -113,18 +155,6 @@ class AgentRouter:
         score = matches / len(self.search_keywords) * 2.0  # Normalize
         return min(score, 1.0)
     
-    def _parse_agent_preference(self, preference: str) -> Optional[AgentType]:
-        """Parse agent preference string to AgentType."""
-        preference_lower = preference.lower()
-        if "analyst" in preference_lower:
-            return AgentType.CORTEX_ANALYST
-        elif "search" in preference_lower:
-            return AgentType.CORTEX_SEARCH
-        elif "combined" in preference_lower:
-            return AgentType.CORTEX_COMBINED
-        return None
-
-
 # Global router instance
 agent_router = AgentRouter()
 

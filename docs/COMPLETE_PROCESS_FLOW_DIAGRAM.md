@@ -236,13 +236,13 @@
 │                     ▼                                                                                  │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐      │
 │  │  Step 5: Invoke Snowflake Agent                                                              │      │
-│  │  _invoke_snowflake_agent(agent_type, query, session_id, context)                            │      │
+│  │  _invoke_snowflake_agent(agent_name, query, session_id, context)                            │      │
 │  │                                                                                               │      │
 │  │  🌐 HTTP POST Request:                                                                        │      │
 │  │     URL: http://snowflake-cortex:8002/agents/invoke                                          │      │
 │  │     Timeout: 300s                                                                             │      │
 │  │     Payload: {                                                                                │      │
-│  │       "agent_type": "cortex_analyst",                                                         │      │
+│  │       "agent_name": "YOUR_ANALYST_AGENT_NAME",                                                 │      │
 │  │       "query": "What are the total sales for Q4 2024?",                                        │      │
 │  │       "session_id": "session-123",                                                            │      │
 │  │       "context": {"data_type": "structured"}                                                 │      │
@@ -746,3 +746,6 @@
 ---
 
 This comprehensive diagram shows the complete flow including all data transformations, prompt management, observability points, state management, and memory operations throughout the entire request lifecycle.
+
+
+

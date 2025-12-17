@@ -230,21 +230,22 @@ Sources: 1
 # Health check
 curl http://localhost:8002/health
 
-# Invoke Analyst agent
+# Invoke a Snowflake Cortex Agent object (Agents Run REST API)
+# NOTE: agent_name must match the Snowflake agent object name in your configured DB/SCHEMA.
 curl -X POST http://localhost:8002/agents/invoke \
   -H "Content-Type: application/json" \
   -d '{
-    "agent_type": "cortex_analyst",
+    "agent_name": "YOUR_ANALYST_AGENT_NAME",
     "query": "What are the total sales?",
     "session_id": "test-123",
     "context": {}
   }'
 
-# Invoke Search agent
+# Invoke Search agent object
 curl -X POST http://localhost:8002/agents/invoke \
   -H "Content-Type: application/json" \
   -d '{
-    "agent_type": "cortex_search",
+    "agent_name": "YOUR_SEARCH_AGENT_NAME",
     "query": "machine learning",
     "session_id": "test-456",
     "context": {"stage_path": "@my_stage"}
@@ -258,7 +259,7 @@ curl http://localhost:8002/prompts/supervisor_routing
 
 - `GET /health` - Health check
 - `POST /agents/invoke` - Invoke an agent
-  - Body: `{"agent_type": "cortex_analyst|cortex_search|cortex_combined", "query": "...", "session_id": "...", "context": {...}}`
+  - Body: `{"agent_name": "<snowflake_agent_object_name>", "query": "...", "session_id": "...", "context": {...}}`
 - `GET /prompts/{prompt_name}` - Get a prompt
 - `POST /prompts` - Create a prompt
 

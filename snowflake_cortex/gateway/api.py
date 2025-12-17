@@ -7,7 +7,6 @@ import uvicorn
 from shared.config.settings import settings
 from shared.utils.logging import setup_logging
 from snowflake_cortex.gateway.agent_gateway import CortexAgentGateway
-from snowflake_cortex.agents.cortex_agent import CortexAgent
 from shared.models.agent_state import AgentType
 from langfuse.prompt_manager import get_prompt_manager
 
@@ -25,11 +24,6 @@ app = FastAPI(
 # Initialize gateway and agents
 gateway = CortexAgentGateway()
 prompt_manager = get_prompt_manager()
-agents = {
-    AgentType.CORTEX_ANALYST: CortexAgent(AgentType.CORTEX_ANALYST),
-    AgentType.CORTEX_SEARCH: CortexAgent(AgentType.CORTEX_SEARCH),
-    AgentType.CORTEX_COMBINED: CortexAgent(AgentType.CORTEX_COMBINED),
-}
 
 
 @app.post("/agents/invoke")
@@ -44,23 +38,37 @@ async def invoke_agent(request: Dict[str, Any]):
         Agent response
     """
     try:
-        agent_type_str = request.get("agent_type", "cortex_combined")
+        agent_name = request.get("agent_name")
         query = request.get("query", "")
         session_id = request.get("session_id", "")
-        context = request.get("context", {})
+        context = request.get("context", {}) or {}
+
+        # Accept either:
+        # - history embedded in context (preferred)
+        # - history as a dedicated top-level field (forward compatible)
+        # Merge if provided at top-level.
+        history = request.get("history")
+        if history is not None and "history" not in context:
+            context["history"] = history
         
-        # Convert string to AgentType
-        agent_type = AgentType(agent_type_str)
-        
-        # Get agent and process query
-        agent = agents.get(agent_type)
-        if not agent:
-            raise HTTPException(status_code=400, detail=f"Unknown agent type: {agent_type_str}")
-        
-        result = await agent.process_query(
+        # Resolve agent name from request or fall back to configured defaults.
+        if not agent_name:
+            agent_name = (
+                settings.snowflake.cortex_agent_name_combined
+                or settings.snowflake.cortex_agent_name
+            )
+        if not agent_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing agent_name and no default Snowflake agent configured (SNOWFLAKE_CORTEX_AGENT_NAME[_COMBINED]).",
+            )
+
+        # Invoke Snowflake Cortex Agent via Agents Run REST API (Snowflake decides tool_choice)
+        result = await gateway.invoke_agent(
+            agent_name=agent_name,
             query=query,
             session_id=session_id,
-            context=context
+            context=context,
         )
         
         return result

@@ -89,21 +89,21 @@ python tests/snowflake/test_gateway.py
 # Health check
 curl http://localhost:8002/health
 
-# Invoke Analyst
+# Invoke Snowflake Cortex Agent object (Agents Run REST API)
 curl -X POST http://localhost:8002/agents/invoke \
   -H "Content-Type: application/json" \
   -d '{
-    "agent_type": "cortex_analyst",
+    "agent_name": "YOUR_ANALYST_AGENT_NAME",
     "query": "What are the total sales?",
     "session_id": "test-123",
     "context": {}
   }'
 
-# Invoke Search
+# Invoke Search agent object
 curl -X POST http://localhost:8002/agents/invoke \
   -H "Content-Type: application/json" \
   -d '{
-    "agent_type": "cortex_search",
+    "agent_name": "YOUR_SEARCH_AGENT_NAME",
     "query": "machine learning",
     "session_id": "test-456",
     "context": {"stage_path": "@my_stage"}

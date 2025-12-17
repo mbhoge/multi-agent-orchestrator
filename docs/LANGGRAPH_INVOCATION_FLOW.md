@@ -265,7 +265,7 @@ async def process_request(
     
     # 6. Invoke Snowflake Cortex AI agent
     agent_response = await self._invoke_snowflake_agent(
-        agent_type=routing_decision["selected_agent"],
+        agent_name=routing_decision["agents_to_call"][0],
         query=request.query,
         session_id=session_id,
         context=request.context
@@ -348,7 +348,7 @@ def route_request(
 ```python
 async def _invoke_snowflake_agent(
     self,
-    agent_type: AgentType,
+    agent_name: str,
     query: str,
     session_id: str,
     context: Optional[Dict[str, Any]] = None
@@ -358,7 +358,7 @@ async def _invoke_snowflake_agent(
         response = await client.post(
             f"{settings.snowflake.cortex_agent_gateway_endpoint}/agents/invoke",
             json={
-                "agent_type": agent_type.value,
+                "agent_name": agent_name,
                 "query": query,
                 "session_id": session_id,
                 "context": context or {}
@@ -474,7 +474,7 @@ POST http://langgraph:8001/supervisor/process
 // 3. LangGraph → Snowflake Agent
 POST http://snowflake-cortex:8002/agents/invoke
 {
-  "agent_type": "cortex_analyst",
+  "agent_name": "YOUR_ANALYST_AGENT_NAME",
   "query": "What are sales?",
   "session_id": "session-123",
   "context": {}
@@ -600,3 +600,6 @@ except Exception as e:
 5. **Response flows back** through the chain to the client
 
 **Key Point:** LangGraph is triggered via **HTTP POST request** from the AWS Agent Core orchestrator, not through AWS Bedrock Agent Core Runtime SDK (unless agent IDs are provided).
+
+
+
