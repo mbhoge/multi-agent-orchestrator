@@ -32,3 +32,8 @@ python-multipart==0.0.6
 # Logging
 structlog==23.2.0
 
+# Microsoft Teams Bot Framework
+botbuilder-core==4.15.0
+botbuilder-schema==4.15.0
+botframework-connector==4.15.0
+

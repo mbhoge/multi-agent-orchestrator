@@ -131,6 +131,23 @@ class TruLensSettings(BaseSettings):
         case_sensitive = False
 
 
+class TeamsSettings(BaseSettings):
+    """Microsoft Teams Bot Framework settings."""
+    
+    teams_enabled: bool = Field(default=False, description="Enable Microsoft Teams integration")
+    teams_app_id: Optional[str] = Field(default=None, description="Microsoft Teams app ID (Bot ID)")
+    teams_app_password: Optional[str] = Field(default=None, description="Microsoft Teams app password (Bot Secret)")
+    teams_tenant_id: Optional[str] = Field(default=None, description="Microsoft Teams tenant ID")
+    teams_webhook_url: Optional[str] = Field(
+        default=None,
+        description="Teams webhook URL (for incoming webhooks, optional)"
+    )
+    
+    class Config:
+        env_prefix = "TEAMS_"
+        case_sensitive = False
+
+
 class AppSettings(BaseSettings):
     """Main application settings."""
     
@@ -144,6 +161,7 @@ class AppSettings(BaseSettings):
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     snowflake: SnowflakeSettings = Field(default_factory=SnowflakeSettings)
     trulens: TruLensSettings = Field(default_factory=TruLensSettings)
+    teams: TeamsSettings = Field(default_factory=TeamsSettings)
     
     class Config:
         env_file = ".env"

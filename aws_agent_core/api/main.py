@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from shared.config.settings import settings
 from shared.utils.logging import setup_logging
 from aws_agent_core.api.routes import router
+from aws_agent_core.api.teams_routes import router as teams_router
 
 # Setup logging
 setup_logging(log_level=settings.log_level)
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Create FastAPI app
 app = FastAPI(
     title="Multi-Agent Orchestrator API",
-    description="REST API for AWS Agent Core multi-agent orchestration",
+    description="REST API for AWS Agent Core multi-agent orchestration with Microsoft Teams integration",
     version=settings.app_version,
 )
 
@@ -29,6 +30,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(router)
+app.include_router(teams_router)
 
 
 @app.on_event("startup")

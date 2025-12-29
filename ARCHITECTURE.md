@@ -16,20 +16,42 @@ The Multi-Agent Orchestrator follows a **three-tier microservices architecture**
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        User/Client                              │
-└───────────────────────────┬───────────────────────────────────┘
-                             │ HTTP REST API
-                             ▼
+│  ┌──────────────────────┐  ┌──────────────────────────────┐   │
+│  │  HTTP REST API       │  │  Microsoft Teams             │   │
+│  │  (Direct API calls)  │  │  (Outgoing Webhook)           │   │
+│  └──────────┬───────────┘  └──────────┬───────────────────┘   │
+└─────────────┼─────────────────────────┼─────────────────────────┘
+              │ HTTPS                    │ HTTPS
+              ▼                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  Tier 1: AWS Agent Core (Port 8000)                            │
+│  AWS API Gateway (HTTP API v2)                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  FastAPI REST API                                        │  │
-│  │  - /api/v1/query (POST)                                  │  │
-│  │  - /health (GET)                                         │  │
-│  │  - /metrics (GET)                                        │  │
+│  │  REST API Endpoints                                       │  │
+│  │  - POST /api/v1/query                                     │  │
+│  │  - POST /api/teams/webhook                                │  │
+│  │  - GET /health                                            │  │
+│  │  - GET /metrics                                           │  │
+│  └───────────────────┬────────────────────────────────────┘  │
+└───────────────────────┼───────────────────────────────────────┘
+                        │ Lambda Invoke
+                        ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Tier 1: AWS Lambda Functions                                   │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Query Handler Lambda                                    │  │
+│  │  - Processes /api/v1/query requests                      │  │
+│  │  - Extracts AgentRequest from API Gateway event         │  │
 │  └───────────────────┬────────────────────────────────────┘  │
 │                      │                                          │
 │  ┌───────────────────▼────────────────────────────────────┐  │
-│  │  MultiAgentOrchestrator                                 │  │
+│  │  Teams Webhook Handler Lambda                           │  │
+│  │  - Processes /api/teams/webhook requests                 │  │
+│  │  - Verifies HMAC signature                              │  │
+│  │  - Transforms Teams webhook → AgentRequest              │  │
+│  └───────────────────┬────────────────────────────────────┘  │
+│                      │                                          │
+│  ┌───────────────────▼────────────────────────────────────┐  │
+│  │  MultiAgentOrchestrator (Shared across Lambdas)        │  │
 │  │  - Coordinates all agents                               │  │
 │  │  - AWS Agent Core Runtime SDK integration              │  │
 │  │  - Observability (Tracing & Metrics)                   │  │
@@ -102,13 +124,20 @@ The Multi-Agent Orchestrator follows a **three-tier microservices architecture**
 
 ### Key Components
 
-1. **AWS Agent Core (Tier 1)**
-   - Entry point for all requests
-   - REST API layer using FastAPI
-   - Orchestrates the entire flow
+1. **AWS API Gateway + Lambda (Tier 1)**
+   - Entry point for all requests (REST API and Microsoft Teams)
+   - **AWS API Gateway HTTP API v2**: Routes requests to Lambda functions
+   - **Lambda Functions**: Serverless handlers for each endpoint
+     - Query Handler: Processes `/api/v1/query` requests
+     - Teams Webhook Handler: Processes `/api/teams/webhook` (outgoing webhook)
+     - Health Handler: Health check endpoint
+     - Metrics Handler: Metrics endpoint
+   - **Microsoft Teams Integration**: Outgoing webhook with HMAC signature verification
+   - **Teams Adapter**: Transforms Teams webhook payloads ↔ AgentRequest/Response
+   - Orchestrates the entire flow through shared `MultiAgentOrchestrator`
    - AWS Bedrock Agent Core Runtime SDK integration
    - **Langfuse Prompt Management**: Uses `orchestrator_query` prompt to enhance queries
-   - Observability: AWS CloudWatch tracing & metrics
+   - Observability: AWS CloudWatch Logs & Metrics (native Lambda integration)
 
 2. **LangGraph Supervisor (Tier 2)**
    - Multi-agent coordination and state management
@@ -136,13 +165,56 @@ The Multi-Agent Orchestrator follows a **three-tier microservices architecture**
 
 ### 1. Request Flow
 
+**Option A: Direct REST API**
 ```
-User Request
+User Request (HTTPS POST)
     │
     ▼
-[FastAPI Router] (/api/v1/query)
+[AWS API Gateway] (/api/v1/query)
     │
     ▼
+[Query Handler Lambda]
+    │
+    ├─→ [Extract AgentRequest from API Gateway event]
+    │
+    ▼
+[MultiAgentOrchestrator.process_request()]
+    │
+    ▼
+[AgentResponse]
+    │
+    ▼
+[API Gateway Response] → User
+```
+
+**Option B: Microsoft Teams Outgoing Webhook**
+```
+Teams @mention in Channel
+    │
+    ▼
+[Teams sends HTTPS POST to API Gateway] (/api/teams/webhook)
+    │
+    ▼
+[Teams Webhook Handler Lambda]
+    │
+    ├─→ [Verify HMAC signature]
+    ├─→ [Parse Teams webhook payload]
+    ├─→ [Transform to AgentRequest]
+    │
+    ▼
+[MultiAgentOrchestrator.process_request()]
+    │
+    ▼
+[AgentResponse]
+    │
+    ├─→ [Format response for Teams (text/JSON)]
+    │
+    ▼
+[API Gateway Response] → Teams Channel
+```
+
+**Common Flow (after transformation)**
+```
 [MultiAgentOrchestrator.process_request()]
     │
     ├─→ Creates session_id
@@ -473,6 +545,15 @@ TRULENS_APP_ID=your-app-id
 TRULENS_API_KEY=your-api-key
 ```
 
+**Microsoft Teams Integration:**
+```bash
+TEAMS_ENABLED=true
+TEAMS_APP_ID=your-microsoft-app-id
+TEAMS_APP_PASSWORD=your-microsoft-app-password
+TEAMS_TENANT_ID=your-tenant-id  # Optional
+TEAMS_WEBHOOK_URL=  # Optional, for incoming webhooks
+```
+
 ### 2. Prompt Configuration
 
 The system uses Langfuse for prompt management. Default prompts are defined in `config/prompts.yaml`:
@@ -662,12 +743,18 @@ Edit `langgraph/reasoning/router.py` to customize routing logic:
 
 This multi-agent orchestrator provides:
 
-✅ **Scalable Architecture**: Three-tier microservices design
+✅ **Scalable Architecture**: Three-tier microservices design with serverless Lambda functions
 ✅ **Intelligent Routing**: Automatic agent selection based on query analysis
 ✅ **State Management**: Session-based state with memory management
 ✅ **Prompt Management**: Centralized Langfuse prompt management across all components
-✅ **Observability**: Integrated tracing and metrics (AWS, Langfuse, TruLens)
+✅ **Observability**: Integrated tracing and metrics (AWS CloudWatch, Langfuse, TruLens)
 ✅ **Flexibility**: Easy to add new agents and customize routing
-✅ **Production Ready**: Docker containerization, health checks, error handling
+✅ **Production Ready**: Serverless architecture with auto-scaling, health checks, error handling
+✅ **Microsoft Teams Integration**: Outgoing webhook integration for conversational AI in Teams channels
+✅ **Cost Effective**: Pay-per-use Lambda pricing with no idle costs
 
-The system is designed to handle both structured (SQL) and unstructured (document search) queries intelligently, routing each request to the most appropriate agent while maintaining state and observability throughout the process. **Langfuse prompt management** enables centralized control and versioning of prompts used across AWS Agent Core, LangGraph Supervisor, and Snowflake Cortex AI agents, allowing for A/B testing, prompt optimization, and consistent behavior across all components.
+The system is designed to handle both structured (SQL) and unstructured (document search) queries intelligently, routing each request to the most appropriate agent while maintaining state and observability throughout the process. **Langfuse prompt management** enables centralized control and versioning of prompts used across AWS Lambda handlers, LangGraph Supervisor, and Snowflake Cortex AI agents, allowing for A/B testing, prompt optimization, and consistent behavior across all components.
+
+**Architecture**: The system uses **AWS API Gateway + Lambda** for serverless request handling, replacing traditional FastAPI servers. This provides automatic scaling, built-in high availability, and cost-effective pay-per-use pricing. Lambda functions handle HTTP requests from API Gateway, process them through the orchestrator, and return responses.
+
+**Microsoft Teams Integration** uses **outgoing webhooks** (simpler than Bot Framework) for channel-based interactions. Users @mention the webhook in Teams channels, and the webhook handler Lambda processes the request and returns formatted responses. See [TEAMS_INTEGRATION.md](docs/TEAMS_INTEGRATION.md) for detailed setup instructions.
