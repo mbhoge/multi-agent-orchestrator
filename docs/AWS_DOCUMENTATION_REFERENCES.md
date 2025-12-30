@@ -205,4 +205,14 @@ def my_agent(payload):
 | AWS Bedrock Agent Core Guide | https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/ |
 | Invoke Agent API | https://docs.aws.amazon.com/bedrock/latest/APIReference/API_agent-runtime_InvokeAgent.html |
 
+---
+
+## Updated AWS Documentation References
+
+The FastAPI-based HTTP server has been removed. All requests are now routed through AWS API Gateway. Update your API Gateway configurations accordingly.
+
+### Key AWS Services:
+- **AWS API Gateway**: Handles all incoming requests.
+- **AWS Lambda**: Processes requests routed through API Gateway.
+
 

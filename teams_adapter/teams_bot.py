@@ -119,4 +119,25 @@ class TeamsBotAdapter:
             "text": "✅",
             "conversation": activity.get("conversation", {}),
         }
+    
+    def call_aws_api_gateway(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Call AWS API Gateway endpoint.
+        
+        Args:
+            payload: Data to send in the request
+            
+        Returns:
+            Response from AWS API Gateway
+        """
+        import requests
+        
+        url = "https://example.execute-api.aws-region.amazonaws.com/prod/endpoint"
+        headers = {
+            "Authorization": "Bearer <token>",
+            "Content-Type": "application/json",
+        }
+        
+        response = requests.post(url, json=payload, headers=headers)
+        return response.json()
 

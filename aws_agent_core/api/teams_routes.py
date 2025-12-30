@@ -1,15 +1,11 @@
 """Microsoft Teams Bot Framework webhook routes."""
 
 import logging
-from fastapi import APIRouter, Request, HTTPException, Header
-from typing import Optional, Dict, Any
 from aws_agent_core.orchestrator import MultiAgentOrchestrator
 from teams_adapter.teams_bot import TeamsBotAdapter
 from teams_adapter.message_transformer import TeamsMessageTransformer
 
 logger = logging.getLogger(__name__)
-
-router = APIRouter(prefix="/api/teams", tags=["teams"])
 
 # Global instances
 _orchestrator: Optional[MultiAgentOrchestrator] = None

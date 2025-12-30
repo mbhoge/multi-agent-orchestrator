@@ -469,6 +469,21 @@ curl -X POST http://localhost:8000/api/teams/webhook \
 
 ---
 
+## Updated Microsoft Teams Integration
+
+The Microsoft Teams webhook now directly triggers AWS API Gateway endpoints. The FastAPI-based HTTP server has been removed.
+
+### Updated Integration Flow:
+```
+Microsoft Teams --> AWS API Gateway --> AWS Lambda Functions --> Multi-Agent Orchestrator
+```
+
+### Key Changes:
+- Removed FastAPI routes.
+- Updated webhook to use AWS API Gateway.
+
+---
+
 ## Next Steps
 
 - **Enhanced Features**: Add proactive messaging, file uploads, task modules

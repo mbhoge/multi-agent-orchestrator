@@ -1,14 +1,10 @@
 """API route handlers."""
 
 import logging
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Optional
 from shared.models.request import AgentRequest, AgentResponse, ErrorResponse
 from aws_agent_core.orchestrator import MultiAgentOrchestrator
 
 logger = logging.getLogger(__name__)
-
-router = APIRouter(prefix="/api/v1", tags=["orchestrator"])
 
 # Global orchestrator instance
 _orchestrator: Optional[MultiAgentOrchestrator] = None
@@ -22,7 +18,6 @@ def get_orchestrator() -> MultiAgentOrchestrator:
     return _orchestrator
 
 
-@router.post("/query", response_model=AgentResponse)
 async def process_query(
     request: AgentRequest,
     orchestrator: MultiAgentOrchestrator = Depends(get_orchestrator),
@@ -57,7 +52,6 @@ async def process_query(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/health")
 async def health_check():
     """
     Health check endpoint.
@@ -71,7 +65,6 @@ async def health_check():
     }
 
 
-@router.get("/metrics")
 async def get_metrics(orchestrator: MultiAgentOrchestrator = Depends(get_orchestrator)):
     """
     Get metrics from the orchestrator.

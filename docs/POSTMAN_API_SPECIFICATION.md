@@ -19,6 +19,25 @@ http://aws-agent-core:8000
 
 ---
 
+## Updated API Endpoints
+
+The FastAPI-based HTTP server has been removed. All API endpoints are now managed through AWS API Gateway.
+
+### Updated Endpoints:
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/query` | Process a user query through the orchestrator |
+| `POST` | `/api/teams/webhook` | Microsoft Teams webhook endpoint |
+| `GET` | `/health` | Health check endpoint |
+| `GET` | `/metrics` | Get orchestrator metrics |
+
+### Base URL:
+```
+https://your-api-gateway-url.amazonaws.com/prod
+```
+
+---
+
 ## API Endpoints Overview
 
 | Method | Endpoint | Description |
