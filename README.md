@@ -67,6 +67,28 @@ multi-agent-orchestrator/
 - Snowflake account with Cortex AI enabled
 - Langfuse account (optional, for observability)
 
+### AWS SDK Setup
+
+The project uses AWS Agent Core SDK for orchestration. To set up the AWS SDK:
+
+**Quick Installation:**
+```bash
+# Using Python script
+python3 scripts/install_aws_sdk.py
+
+# Or using shell script
+./scripts/install_aws_sdk.sh
+```
+
+**For detailed setup instructions**, including AWS account configuration, IAM permissions, and region setup, see:
+- [AWS SDK Setup Guide](docs/AWS_SDK_SETUP.md)
+
+**Prerequisites for AWS Agent Core SDK:**
+- AWS Account with active subscription
+- IAM permissions for AWS Agent Core and Amazon Bedrock
+- AWS region that supports Agent Core (e.g., us-east-1, us-west-2)
+- AWS credentials configured (via `aws configure` or environment variables)
+
 ## Quick Start
 
 ### Local Development
