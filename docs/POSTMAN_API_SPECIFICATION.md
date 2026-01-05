@@ -602,5 +602,44 @@ Currently, there are no rate limits. For production, consider implementing:
 4. **Metadata:** Use metadata to track requests across your system
 5. **Error Handling:** Always check the response status code and handle errors appropriately
 
+---
+
+## Setting Up AWS SDK (Boto3) and Dependencies
+
+### Prerequisites
+1. Ensure you have Python 3 installed on your system.
+2. Install `pip` (Python package manager) if not already installed.
+3. Ensure you have access to the `requirements.txt` file in the project directory.
+
+### Steps to Set Up
+1. Navigate to the project directory:
+   ```bash
+   cd /path/to/project
+   ```
+2. Run the setup script:
+   ```bash
+   ./setup_aws_sdk.sh
+   ```
+3. The script will:
+   - Check for Python 3 and `pip`.
+   - Install `virtualenv` if not already installed.
+   - Create a virtual environment and activate it.
+   - Install dependencies from `requirements.txt` (including `boto3`).
+
+### Expected Outcome
+- A virtual environment (`venv`) will be created in the project directory.
+- All dependencies, including `boto3`, will be installed.
+- The setup is complete, and you can now interact with AWS services programmatically.
+
+### Troubleshooting
+- If you encounter permission issues, try running the script with `sudo`:
+  ```bash
+  sudo ./setup_aws_sdk.sh
+  ```
+- Ensure `requirements.txt` is present in the project directory. If not, manually install `boto3`:
+  ```bash
+  pip3 install boto3
+  ```
+
 
 
