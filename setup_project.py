@@ -347,8 +347,6 @@ root:
         print("Creating requirements files...")
         
         requirements = """# Core dependencies
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 python-dotenv==1.0.0

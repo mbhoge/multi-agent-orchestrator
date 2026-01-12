@@ -81,7 +81,7 @@ The Multi-Agent Orchestrator follows a **three-tier microservices architecture**
 ┌─────────────────────────────────────────────────────────────────┐
 │  Tier 3: Snowflake Cortex Agents (Port 8002)                   │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  SnowflakeGatewayService (FastAPI)                       │  │
+│  │  SnowflakeGatewayService (Lambda)                        │  │
 │  │  - Accepts /agents/invoke                                │  │
 │  │  - Calls Snowflake Cortex Agents Run REST API            │  │
 │  └───────────────────┬────────────────────────────────────┘  │

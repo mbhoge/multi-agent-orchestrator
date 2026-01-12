@@ -33,7 +33,7 @@ The complete diagram includes:
                    │
                    ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 2. FastAPI Route Handler                                        │
+│ 2. Lambda Handler                                                │
 │    aws_agent_core/api/routes.py                                 │
 │    @router.post("/query")                                       │
 │    → process_query()                                            │
@@ -85,7 +85,7 @@ The complete diagram includes:
 
 ## Step-by-Step Code Flow
 
-### Step 1: Request Arrives at FastAPI
+### Step 1: Request Arrives at Lambda Handler
 
 **File:** `aws_agent_core/api/routes.py`
 
@@ -107,9 +107,9 @@ async def process_query(
 ```
 
 **What happens:**
-- FastAPI receives POST request to `/api/v1/query`
+- Lambda handler receives POST request from API Gateway at `/api/v1/query`
 - Request body is parsed into `AgentRequest` object
-- Dependency injection provides `MultiAgentOrchestrator` instance
+- Creates `MultiAgentOrchestrator` instance
 - Calls `orchestrator.process_request()`
 
 ---
@@ -222,7 +222,7 @@ async def process_supervisor_request(request: Dict[str, Any]):
 ```
 
 **What happens:**
-- FastAPI endpoint receives HTTP POST request
+- Lambda handler receives HTTP POST request via API Gateway
 - Converts dictionary to `AgentRequest` object
 - Calls `supervisor.process_request()`
 
@@ -579,7 +579,7 @@ async def handle_error(state: SupervisorState) -> SupervisorState:
 
 ## Summary
 
-1. **Request arrives** at AWS Agent Core FastAPI endpoint
+1. **Request arrives** at AWS Agent Core Lambda handler via API Gateway
 2. **Orchestrator** receives request and prepares to invoke LangGraph
 3. **HTTP call** made to LangGraph supervisor endpoint (`/supervisor/process`)
 4. **LangGraph supervisor** processes request through **StateGraph workflow**:

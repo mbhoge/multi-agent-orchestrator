@@ -20,7 +20,7 @@ User Request → AWS Agent Core (REST API) → LangGraph Supervisor → Snowflak
 ### Components
 
 1. **AWS Agent Core**: Multi-agent orchestrator using AWS Bedrock Agent Core Runtime SDK
-   - REST API (FastAPI)
+   - REST API (AWS Lambda + API Gateway)
    - Observability and tracing via AWS Agent Core Runtime SDK
    - **Langfuse prompt management**: Uses `orchestrator_query` prompt
    - Invokes LangGraph for reasoning

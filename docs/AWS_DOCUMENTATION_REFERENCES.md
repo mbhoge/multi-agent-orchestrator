@@ -1,18 +1,8 @@
 # AWS Documentation References for Multi-Agent Orchestrator
 
-## Important Clarification
+## Important Note
 
-The string `"aws_agent_core.api.main:app"` in your `uvicorn.run()` call is **NOT** an AWS-specific pattern. It's a standard **Uvicorn/FastAPI** pattern for specifying the application location.
-
-### What `"aws_agent_core.api.main:app"` Means
-
-- **Format**: `"module.path:variable_name"`
-- **Purpose**: Tells Uvicorn where to find your FastAPI app instance
-- **Standard**: This is a Python/Uvicorn convention, not AWS-specific
-
-**Documentation:**
-- [Uvicorn - Application](https://www.uvicorn.org/#application)
-- [FastAPI - Run Server](https://fastapi.tiangolo.com/deployment/server/)
+**FastAPI has been removed from this project.** The system now uses AWS Lambda functions and API Gateway for request handling. All FastAPI/Uvicorn code has been removed.
 
 ---
 
@@ -184,8 +174,7 @@ def my_agent(payload):
 
 ## Summary
 
-1. **`aws_agent_core.api.main:app`** → Standard Uvicorn pattern (not AWS-specific)
-   - Uvicorn docs: https://www.uvicorn.org/#application
+1. **AWS Lambda + API Gateway** → Serverless request handling (FastAPI removed)
 
 2. **Your AWS Integration** → Uses boto3 `bedrock-agent-runtime` client
    - Boto3 docs: https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/bedrock-agent-runtime.html
@@ -199,7 +188,7 @@ def my_agent(payload):
 
 | What You're Looking For | Documentation Link |
 |------------------------|-------------------|
-| Uvicorn app string format | https://www.uvicorn.org/#application |
+| AWS Lambda handler | AWS Lambda Python handler documentation |
 | Boto3 bedrock-agent-runtime | https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/bedrock-agent-runtime.html |
 | Bedrock Agent Core SDK | https://aws.github.io/bedrock-agentcore-starter-toolkit/ |
 | AWS Bedrock Agent Core Guide | https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/ |

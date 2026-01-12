@@ -208,8 +208,8 @@ async def run_all_tests():
     print("=" * 60)
     
     print("\n⚠ Make sure the gateway is running:")
-    print(f"  python -m snowflake_cortex.gateway.api")
-    print(f"  Or: uvicorn snowflake_cortex.gateway.api:app --host 0.0.0.0 --port 8002")
+    print(f"  The gateway now runs as AWS Lambda functions via API Gateway")
+    print(f"  Update GATEWAY_URL to point to your API Gateway endpoint")
     
     input("\nPress Enter to continue...")
     

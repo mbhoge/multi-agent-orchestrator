@@ -1,9 +1,7 @@
 """Multi-agent supervisor for LangGraph."""
 
 import logging
-import time
 from typing import Dict, Any, Optional
-from fastapi import FastAPI, HTTPException
 from shared.config.settings import settings
 from shared.models.request import AgentRequest
 from shared.utils.exceptions import LangGraphError
@@ -123,61 +121,4 @@ class LangGraphSupervisor:
             "execution_time": state.get("execution_time"),
             "session_id": state.get("session_id"),
         }
-
-
-# FastAPI app for LangGraph supervisor
-app = FastAPI(
-    title="LangGraph Supervisor API",
-    description="API for LangGraph multi-agent supervisor",
-    version="1.0.0"
-)
-
-supervisor = LangGraphSupervisor()
-
-
-@app.post("/supervisor/process")
-async def process_supervisor_request(request: Dict[str, Any]):
-    """
-    Process a request through the LangGraph supervisor.
-    
-    Args:
-        request: Request dictionary with query, session_id, etc.
-    
-    Returns:
-        Supervisor response
-    """
-    try:
-        agent_request = AgentRequest(
-            query=request.get("query", ""),
-            session_id=request.get("session_id"),
-            context=request.get("context"),
-            agent_preference=request.get("agent_preference")
-        )
-        
-        response = await supervisor.process_request(
-            request=agent_request,
-            session_id=agent_request.session_id or f"session_{int(time.time() * 1000)}"
-        )
-        
-        return response
-    except Exception as e:
-        logger.error(f"Error in supervisor endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "service": "langgraph-supervisor"}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "langgraph.supervisor:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=settings.debug,
-        log_level=settings.log_level.lower()
-    )
 

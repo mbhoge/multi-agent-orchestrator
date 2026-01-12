@@ -563,7 +563,7 @@ Accept: {{content_type}}
 
 ## API Documentation
 
-FastAPI automatically generates interactive API documentation:
+API Gateway provides API documentation and testing capabilities:
 
 - **Swagger UI:** `http://localhost:8000/docs`
 - **ReDoc:** `http://localhost:8000/redoc`
