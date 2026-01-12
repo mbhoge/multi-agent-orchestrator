@@ -146,14 +146,14 @@
 │  │                                                                                               │      │
 │  │  Step 1: State Management                                                                    │      │
 │  │  ┌────────────────────────────────────────────────────────────────────────────┐             │      │
-│  │  │  state_manager.get_state(session_id)                                       │             │      │
+│  │  │  StateGraph automatically loads state via thread_id                        │             │      │
 │  │  │  → Retrieve existing state OR create new state                             │             │      │
 │  │  │                                                                             │             │      │
 │  │  │  State Object:                                                              │             │      │
 │  │  │  {                                                                          │             │      │
 │  │  │    "session_id": "session-123",                                             │             │      │
 │  │  │    "query": "What are sales?",                                             │             │      │
-│  │  │    "status": RequestStatus.PROCESSING,                                      │             │      │
+│  │  │    "status": "processing",                                                 │             │      │
 │  │  │    "current_step": "routing",                                              │             │      │
 │  │  │    "metadata": {...}                                                       │             │
 │  │  │  }                                                                          │             │      │
@@ -210,12 +210,13 @@
 │                     │ Rendered Prompt: "Analyze query: What are sales?..."                          │
 │                     ▼                                                                                  │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐      │
-│  │  Step 3: Agent Routing                                                                      │      │
-│  │  agent_router.route_request(routing_prompt, context, agent_preference)                      │      │
-│  │  langgraph/reasoning/router.py                                                               │      │
+│  │  Node 2: route_request                                                                       │      │
+│  │  - Get routing prompt from Langfuse                                                          │      │
+│  │  - Call agent_router.route_request()                                                        │      │
+│  │  - Store routing decision in state                                                          │      │
 │  │                                                                                               │      │
 │  │  ┌────────────────────────────────────────────────────────────────────────────┐             │      │
-│  │  │  Routing Decision Logic:                                                    │             │      │
+│  │  │  Routing Decision Logic (langgraph/reasoning/router.py):                   │             │      │
 │  │  │                                                                             │             │      │
 │  │  │  1. Analyze Query:                                                         │             │      │
 │  │  │     - Query type detection (structured vs unstructured)                   │             │      │
@@ -224,17 +225,14 @@
 │  │  │                                                                             │             │      │
 │  │  │  2. Routing Decision:                                                      │             │      │
 │  │  │     {                                                                       │             │      │
-│  │  │       "selected_agent": "MARKET_SEGMENT_AGENT",                            │             │      │
+│  │  │       "agents_to_call": ["MARKET_SEGMENT_AGENT"],                         │             │      │
 │  │  │       "routing_reason": "Query requires structured data analysis",        │             │      │
 │  │  │       "confidence": 0.95                                                   │             │      │
 │  │  │     }                                                                       │             │      │
 │  │  │                                                                             │             │      │
-│  │  │  3. Update State:                                                          │             │      │
-│  │  │     state_manager.update_state(session_id, {                               │             │      │
-│  │  │       "selected_agent": "MARKET_SEGMENT_AGENT",                              │             │      │
-│  │  │       "routing_reason": "Query requires structured data",                  │             │      │
-│  │  │       "current_step": "agent_invocation"                                   │             │      │
-│  │  │     })                                                                      │             │      │
+│  │  │  3. Update State (automatic via StateGraph):                                │             │      │
+│  │  │     state["routing_decision"] = routing_decision                          │             │      │
+│  │  │     state["current_step"] = "route_request"                                │             │      │
 │  │  └────────────────────────────────────────────────────────────────────────────┘             │      │
 │  │                                                                                               │      │
 │  │  📊 OBSERVABILITY:                                                                            │      │
@@ -243,7 +241,7 @@
 │  │     - Routing time measured                                                                  │      │
 │  └──────────────────┬──────────────────────────────────────────────────────────────────────────┘      │
 │                     │                                                                                  │
-│                     │ Routing Decision: market_segment (confidence: 0.95)                              │
+│                     │ StateGraph Conditional Edge: route_request → invoke_agents (or handle_error)   │
 │                     ▼                                                                                  │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐      │
 │  │  Step 4: Memory Management                                                                  │      │
@@ -330,36 +328,19 @@
 │  ╚═══════════════════════════════════════════════════════════════════════════════════════════════╝    │
 │                                                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐      │
-│  │  Step 6: Update State with Response                                                         │      │
-│  │  state_manager.update_state(session_id, {                                                     │      │
-│  │    "status": RequestStatus.COMPLETED,                                                         │      │
-│  │    "final_response": agent_response.get("response"),                                         │      │
-│  │    "current_step": "completed"                                                                │      │
-│  │  })                                                                                            │      │
+│  │  StateGraph Workflow Complete                                                                │      │
+│  │  - Final state contains:                                                                     │      │
+│  │    * final_response: Agent response text                                                     │      │
+│  │    * routing_decision: Routing information                                                   │      │
+│  │    * agent_responses: All agent responses                                                    │      │
+│  │    * status: "completed"                                                                     │      │
+│  │    * execution_time: Total time                                                              │      │
+│  │  - State automatically managed by LangGraph StateGraph                                       │      │
 │  └──────────────────┬──────────────────────────────────────────────────────────────────────────┘      │
 │                     │                                                                                  │
-│                     │ Step 7: Long-Term Memory (if significant)                                      │
-│                     ▼                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐      │
-│  │  if routing_decision.get("confidence", 0) > 0.8:                                           │      │
-│  │    long_term_memory.store(                                                                  │      │
-│  │      key=f"query_pattern_{session_id}",                                                      │      │
-│  │      value={                                                                                 │      │
-│  │        "query": "What are sales?",                                                           │      │
-│  │        "agent": "market_segment",                                                            │      │
-│  │        "success": True                                                                       │      │
-│  │      }                                                                                        │      │
-│  │    )                                                                                          │      │
-│  │                                                                                               │      │
-│  │  📊 OBSERVABILITY:                                                                           │      │
-│  │     - Long-term memory storage logged                                                        │      │
-│  │     - Pattern learning tracked                                                               │      │
-│  └──────────────────┬──────────────────────────────────────────────────────────────────────────┘      │
+│                     │ (Long-term memory and Langfuse logging handled in update_memory and log_observability nodes)│
 │                     │                                                                                  │
-│                     │ Step 8: Langfuse Observability Logging                                        │
-│                     ▼                                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐      │
-│  │  langfuse_client.log_supervisor_decision()                                                  │      │
+│                     │ StateGraph Edge: log_observability → END                                        │
 │  │                                                                                               │      │
 │  │  ┌────────────────────────────────────────────────────────────────────────────┐             │      │
 │  │  │  Langfuse Trace Logging:                                                   │             │      │
@@ -923,27 +904,31 @@
 │                                                                                               │
 │  State Creation:                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────────┐             │
-│  │  state_manager.create_state()                                              │             │
+│  │  StateGraph initializes state in load_state node                           │             │
 │  │  {                                                                          │             │
 │  │    "session_id": "session-123",                                            │             │
 │  │    "query": "What are sales?",                                             │             │
-│  │    "status": RequestStatus.PENDING,                                        │             │
-│  │    "current_step": "initialization",                                       │             │
+│  │    "status": "processing",                                                 │             │
+│  │    "current_step": None,                                                   │             │
 │  │    "metadata": {...}                                                       │             │
 │  │  }                                                                          │             │
 │  └────────────────────────────────────────────────────────────────────────────┘             │
 │         │                                                                                      │
 │         ▼                                                                                      │
-│  State Updates:                                                                                │
+│  State Updates (StateGraph Nodes):                                                             │
 │  ┌────────────────────────────────────────────────────────────────────────────┐             │
-│  │  1. PROCESSING: status=PROCESSING, current_step="routing"                │             │
-│  │  2. ROUTING: selected_agent, routing_reason, current_step="agent_invocation"│            │
-│  │  3. COMPLETED: status=COMPLETED, final_response, current_step="completed"  │             │
-│  │  4. FAILED: status=FAILED, error message (if error occurs)                │             │
+│  │  1. load_state: status="processing", current_step="load_state"            │             │
+│  │  2. route_request: routing_decision set, current_step="route_request"     │             │
+│  │  3. invoke_agents: agent_responses set, current_step="invoke_agents"      │             │
+│  │  4. combine_responses: final_response set, current_step="combine_responses"│            │
+│  │  5. update_memory: messages updated, current_step="update_memory"          │             │
+│  │  6. log_observability: status="completed", current_step="completed"        │             │
+│  │  7. handle_error: status="failed", error set (if error occurs)            │             │
 │  └────────────────────────────────────────────────────────────────────────────┘             │
 │                                                                                               │
-│  State Retrieval:                                                                             │
-│  • get_state(session_id) → Returns current state for session                                  │
+│  State Retrieval (StateGraph):                                                                 │
+│  • State automatically loaded via thread_id in config                                        │
+│  • StateGraph checkpointer handles persistence (if configured)                               │
 │  • Used for conversation context and stateful interactions                                    │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1329,7 +1314,7 @@ This comprehensive diagram shows the complete flow including:
 - **Data transformations**: Teams webhook → AgentRequest → AgentResponse → Teams response
 - **Prompt management**: Langfuse integration for dynamic prompts
 - **Observability**: CloudWatch, X-Ray, Langfuse, and TruLens
-- **State management**: Session-based state and memory operations
+- **State management**: LangGraph StateGraph pattern with automatic state management
 - **Multi-agent orchestration**: LangGraph supervisor routing to domain-specific Snowflake agents
 
 

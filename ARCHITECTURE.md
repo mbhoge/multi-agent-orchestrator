@@ -62,8 +62,8 @@ The Multi-Agent Orchestrator follows a **three-tier microservices architecture**
 ┌─────────────────────────────────────────────────────────────────┐
 │  Tier 2: LangGraph Supervisor (Port 8001)                      │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  LangGraphSupervisor                                     │  │
-│  │  - State Management (StateManager)                      │  │
+│  │  LangGraphSupervisor (StateGraph)                       │  │
+│  │  - StateGraph Workflow (automatic state management)     │  │
 │  │  - Memory Management (Short-term & Long-term)           │  │
 │  │  - Request Routing (AgentRouter)                        │  │
 │  │  - Langfuse Observability                                │  │
@@ -230,11 +230,14 @@ Teams @mention in Channel
     ▼
 [LangGraphSupervisor.process_request()]
     │
-    ├─→ StateManager: Get/Create state
-    ├─→ **Gets supervisor_routing prompt from Langfuse**
-    ├─→ **Renders routing prompt with query and context**
-    ├─→ AgentRouter: Selects which Snowflake agent object(s) to invoke (not tool_choice)
-    ├─→ ShortTermMemory: Store query, routing_decision, and history
+    ├─→ StateGraph.ainvoke() - Invokes workflow
+    │   │
+    │   ├─→ load_state node: Load conversation history
+    │   ├─→ route_request node: Get prompt from Langfuse & route
+    │   ├─→ invoke_agents node: Invoke Snowflake agent(s)
+    │   ├─→ combine_responses node: Combine multiple responses
+    │   ├─→ update_memory node: Update history and patterns
+    │   └─→ log_observability node: Log to Langfuse
     │
     ▼
 [HTTP POST] → Snowflake Gateway (/agents/invoke)
@@ -256,15 +259,20 @@ Teams @mention in Channel
 User receives AgentResponse
 ```
 
-### 2. State Management Flow
+### 2. State Management Flow (StateGraph)
 
 ```
-StateManager (in-memory)
+StateGraph (LangGraph - automatic state management)
     │
-    ├─→ create_state() - New session
-    ├─→ get_state() - Retrieve existing
-    ├─→ update_state() - Update progress
-    └─→ delete_state() - Cleanup
+    ├─→ load_state node - Load conversation history from memory
+    ├─→ route_request node - Update state with routing decision
+    ├─→ invoke_agents node - Update state with agent responses
+    ├─→ combine_responses node - Update state with final response
+    ├─→ update_memory node - Update conversation history
+    └─→ log_observability node - Finalize state (status="completed")
+    
+State is automatically passed between nodes via StateGraph.
+No manual create_state() or update_state() calls needed.
 ```
 
 ### 3. Memory Management Flow

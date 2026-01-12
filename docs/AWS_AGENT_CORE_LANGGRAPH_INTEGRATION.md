@@ -59,27 +59,29 @@ class State(TypedDict):
     session_id: str
     context: dict
 
-# Build LangGraph supervisor
-graph_builder = StateGraph(State)
+# Build LangGraph supervisor (matches our implementation)
+from langgraph.state.graph_state import SupervisorState
 
-# Add supervisor nodes
-def supervisor_node(state: State):
-    """Supervisor node that routes to appropriate agents."""
-    # Your routing logic here
-    return {"messages": state["messages"]}
+graph_builder = StateGraph(SupervisorState)
 
-def process_query_node(state: State):
-    """Process the query using selected agent."""
-    # Your processing logic here
-    return {"messages": state["messages"]}
+# Add supervisor nodes (matches langgraph/supervisor/graph.py)
+graph_builder.add_node("load_state", load_state)
+graph_builder.add_node("route_request", route_request)
+graph_builder.add_node("invoke_agents", invoke_agents)
+graph_builder.add_node("combine_responses", combine_responses)
+graph_builder.add_node("update_memory", update_memory)
+graph_builder.add_node("log_observability", log_observability)
+graph_builder.add_node("handle_error", handle_error)
 
-# Add nodes and edges
-graph_builder.add_node("supervisor", supervisor_node)
-graph_builder.add_node("process", process_query_node)
-graph_builder.add_edge("supervisor", "process")
+# Add edges
+graph_builder.add_edge(START, "load_state")
+graph_builder.add_edge("load_state", "route_request")
+# ... conditional edges for error handling ...
+graph_builder.add_edge("update_memory", "log_observability")
+graph_builder.add_edge("log_observability", END)
 
-# Compile the graph
-graph = graph_builder.compile()
+# Compile the graph (with optional checkpointer)
+graph = graph_builder.compile()  # Can add checkpointer=checkpointer here
 
 # Initialize the Agent Core application
 app = BedrockAgentCoreApp()
@@ -100,16 +102,26 @@ def agent_invocation(payload, context):
     session_id = payload.get("session_id", "")
     query_context = payload.get("context", {})
     
-    # Invoke LangGraph supervisor
-    result = graph.invoke({
-        "messages": [{"role": "user", "content": user_message}],
+    # Invoke LangGraph supervisor (matches our implementation)
+    initial_state = {
+        "query": user_message,
         "session_id": session_id,
-        "context": query_context
-    })
+        "messages": [],
+        "routing_decision": None,
+        "agent_responses": [],
+        "final_response": None,
+        "status": "processing",
+        "context": query_context,
+        # ... other required fields
+    }
+    
+    config = {"configurable": {"thread_id": session_id}}
+    result = await graph.ainvoke(initial_state, config=config)
     
     return {
-        "result": result['messages'][-1].content if result.get('messages') else "",
-        "session_id": session_id
+        "result": result.get('final_response', ''),
+        "session_id": session_id,
+        "selected_agent": result.get('routing_decision', {}).get('agents_to_call', [])
     }
 
 # Run the application
@@ -586,9 +598,10 @@ To migrate from the current direct HTTP approach to the recommended Agent Core S
 # langgraph_agent_core_wrapper.py
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from langgraph.supervisor import LangGraphSupervisor
+from shared.models.request import AgentRequest
 
 app = BedrockAgentCoreApp()
-supervisor = LangGraphSupervisor()
+supervisor = LangGraphSupervisor()  # Uses StateGraph internally
 
 @app.entrypoint
 def agent_invocation(payload, context):
@@ -596,13 +609,24 @@ def agent_invocation(payload, context):
     session_id = payload.get("session_id", "")
     context_data = payload.get("context", {})
     
-    result = supervisor.process_request(
+    # Create AgentRequest (matches our API)
+    request = AgentRequest(
         query=query,
         session_id=session_id,
         context=context_data
     )
     
-    return {"result": result.response}
+    # Process through StateGraph workflow
+    result = await supervisor.process_request(
+        request=request,
+        session_id=session_id
+    )
+    
+    return {
+        "result": result.get("response", ""),
+        "session_id": session_id,
+        "selected_agent": result.get("selected_agent", "")
+    }
 
 if __name__ == "__main__":
     app.run()

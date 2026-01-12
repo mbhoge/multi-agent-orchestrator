@@ -228,9 +228,11 @@ async def process_supervisor_request(request: Dict[str, Any]):
 
 ---
 
-### Step 5: LangGraph Supervisor Processing
+### Step 5: LangGraph Supervisor Processing (StateGraph Workflow)
 
-**File:** `langgraph/supervisor.py` (lines 28-155)
+**File:** `langgraph/supervisor.py` and `langgraph/supervisor/graph.py`
+
+The supervisor now uses LangGraph's **StateGraph** pattern for declarative workflow management. The processing is handled through a graph of nodes:
 
 ```python
 async def process_request(
@@ -238,71 +240,50 @@ async def process_request(
     request: AgentRequest,
     session_id: str
 ) -> Dict[str, Any]:
-    # 1. Initialize or retrieve state
-    state = state_manager.get_state(session_id)
-    
-    # 2. Update state to processing
-    state_manager.update_state(session_id, {
-        "status": RequestStatus.PROCESSING,
-        "current_step": "routing"
-    })
-    
-    # 3. Get prompt for routing decision
-    routing_prompt = await self.langfuse_client.get_prompt_for_routing(
-        query=request.query,
-        context=request.context
-    )
-    
-    # 4. Route request to appropriate agent
-    routing_decision = agent_router.route_request(
-        query=routing_prompt,
-        context=request.context,
-        agent_preference=request.agent_preference
-    )
-    
-    # 5. Store in short-term memory
-    short_term_memory.store(...)
-    
-    # 6. Invoke Snowflake Cortex AI agent
-    agent_response = await self._invoke_snowflake_agent(
-        agent_name=routing_decision["agents_to_call"][0],
-        query=request.query,
-        session_id=session_id,
-        context=request.context
-    )
-    
-    # 7. Update state with response
-    state_manager.update_state(session_id, {
-        "status": RequestStatus.COMPLETED,
-        "final_response": agent_response.get("response", "")
-    })
-    
-    # 8. Store in long-term memory if significant
-    if routing_decision.get("confidence", 0) > 0.8:
-        long_term_memory.store(...)
-    
-    # 9. Log to Langfuse
-    await self.langfuse_client.log_supervisor_decision(...)
-    
-    # 10. Return response
-    return {
-        "response": agent_response.get("response", ""),
-        "selected_agent": routing_decision["selected_agent"].value,
-        "routing_reason": routing_decision["routing_reason"],
-        "confidence": routing_decision.get("confidence", 0.5),
-        "sources": agent_response.get("sources", []),
-        "execution_time": execution_time,
-        "session_id": session_id
+    # Convert AgentRequest to initial state
+    initial_state = {
+        "query": request.query,
+        "session_id": session_id,
+        "messages": [],
+        "routing_decision": None,
+        "agent_responses": [],
+        "final_response": None,
+        "status": "processing",
+        "metadata": {
+            **(request.metadata or {}),
+            "agent_preference": request.agent_preference,
+        },
+        "context": request.context or {},
     }
+    
+    # Invoke StateGraph with thread_id for state correlation
+    config = {"configurable": {"thread_id": session_id}}
+    result = await self.graph.ainvoke(initial_state, config=config)
+    
+    # Convert result to response format
+    return self._format_response(result)
 ```
 
+**StateGraph Workflow Nodes:**
+
+The workflow consists of the following nodes executed in sequence:
+
+1. **`load_state`** - Loads conversation history from short-term memory and appends current user message
+2. **`route_request`** - Gets routing prompt from Langfuse and calls agent_router to determine which agents to invoke
+3. **`invoke_agents`** - Invokes one or more Snowflake Cortex AI agents based on routing decision
+4. **`combine_responses`** - Combines responses from multiple agents if needed
+5. **`update_memory`** - Updates short-term and long-term memory with conversation history
+6. **`log_observability`** - Logs to Langfuse for observability
+7. **`handle_error`** - Handles errors if any node sets status to "failed"
+
 **Key Operations:**
-1. **State Management:** Maintains conversation state
-2. **Prompt Management:** Gets routing prompts from Langfuse
-3. **Agent Routing:** Uses `agent_router` to decide which agent to use
-4. **Memory Management:** Stores in short-term and long-term memory
-5. **Agent Invocation:** Calls Snowflake Cortex AI agents
-6. **Observability:** Logs to Langfuse
+1. **StateGraph Management:** LangGraph handles state automatically through the graph
+2. **Prompt Management:** Gets routing prompts from Langfuse (in `route_request` node)
+3. **Agent Routing:** Uses `agent_router` to decide which agent to use (in `route_request` node)
+4. **Memory Management:** Stores in short-term and long-term memory (in `update_memory` node)
+5. **Agent Invocation:** Calls Snowflake Cortex AI agents (in `invoke_agents` node)
+6. **Observability:** Logs to Langfuse (in `log_observability` node)
+7. **Error Handling:** Conditional edges route to error handler when status is "failed"
 
 ---
 
@@ -535,12 +516,14 @@ POST http://snowflake-cortex:8002/agents/invoke
 ### 2. State Management
 
 **Used in:**
-- `langgraph/state/state_manager.py`
+- `langgraph/state/graph_state.py` - SupervisorState TypedDict for StateGraph
+- `langgraph/supervisor/graph.py` - StateGraph workflow with state management
 
 **Purpose:**
-- Maintains conversation state
-- Tracks request status
-- Stores routing decisions
+- LangGraph StateGraph automatically manages state throughout the workflow
+- State is passed between nodes as a TypedDict
+- No manual state create/update calls needed
+- Built-in checkpointing support (can add checkpointer for persistence)
 
 ### 3. Memory Management
 
@@ -575,14 +558,21 @@ except httpx.HTTPError as e:
 ### General Errors
 
 ```python
-# supervisor.py
-except Exception as e:
-    logger.error(f"Error in LangGraph supervisor: {str(e)}")
-    state_manager.update_state(session_id, {
-        "status": RequestStatus.FAILED,
-        "error": str(e)
-    })
-    raise LangGraphError(f"Supervisor processing failed: {str(e)}") from e
+# supervisor/graph.py - handle_error node
+async def handle_error(state: SupervisorState) -> SupervisorState:
+    """Handle errors in the workflow."""
+    session_id = state["session_id"]
+    error = state.get("error", "Unknown error")
+    
+    logger.error(f"Handling error for session {session_id}: {error}")
+    
+    state["status"] = "failed"
+    state["current_step"] = "error_handled"
+    
+    return state
+
+# Error handling is automatic via conditional edges in StateGraph
+# If any node sets status="failed", the graph routes to handle_error node
 ```
 
 ---
@@ -592,14 +582,22 @@ except Exception as e:
 1. **Request arrives** at AWS Agent Core FastAPI endpoint
 2. **Orchestrator** receives request and prepares to invoke LangGraph
 3. **HTTP call** made to LangGraph supervisor endpoint (`/supervisor/process`)
-4. **LangGraph supervisor** processes request:
-   - Manages state
-   - Routes to appropriate agent
-   - Invokes Snowflake agent
-   - Returns response
+4. **LangGraph supervisor** processes request through **StateGraph workflow**:
+   - **load_state** node: Loads conversation history
+   - **route_request** node: Gets prompt and routes to appropriate agent(s)
+   - **invoke_agents** node: Invokes Snowflake Cortex AI agent(s)
+   - **combine_responses** node: Combines multiple agent responses if needed
+   - **update_memory** node: Updates conversation history and patterns
+   - **log_observability** node: Logs to Langfuse
+   - **handle_error** node: Handles errors if any occur (via conditional edges)
 5. **Response flows back** through the chain to the client
 
-**Key Point:** LangGraph is triggered via **HTTP POST request** from the AWS Agent Core orchestrator, not through AWS Bedrock Agent Core Runtime SDK (unless agent IDs are provided).
+**Key Points:**
+- LangGraph uses **StateGraph pattern** for declarative workflow management
+- State is automatically managed by LangGraph (no manual state_manager calls)
+- Workflow is defined as a graph with nodes and edges, making it easy to visualize and debug
+- Error handling is built-in via conditional edges that route to `handle_error` node
+- LangGraph is triggered via **HTTP POST request** from the AWS Agent Core orchestrator
 
 
 

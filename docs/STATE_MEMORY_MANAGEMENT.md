@@ -12,12 +12,12 @@ This document provides a comprehensive analysis of state and memory management a
 
 1. **State is needed at all three levels**, but for different purposes:
    - **AWS Agent Core**: Session management and orchestration-level state
-   - **LangGraph**: Workflow state, routing decisions, and conversation history
+   - **LangGraph**: Workflow state managed via StateGraph pattern, routing decisions, and conversation history
    - **Snowflake**: Conversation threading and query context
 
-2. **Session ID is the primary mechanism** for state correlation across frameworks
+2. **Session ID is the primary mechanism** for state correlation across frameworks (used as `thread_id` in StateGraph)
 
-3. **Current implementation uses in-memory state** which should be migrated to persistent storage for production
+3. **Current implementation uses LangGraph StateGraph** with in-memory state (can add checkpointer for persistent storage)
 
 4. **Historical context can be maintained** through:
    - Short-term memory (within session)
@@ -26,11 +26,11 @@ This document provides a comprehensive analysis of state and memory management a
 
 ### Recommendations
 
-1. **Implement persistent state storage** using AWS AgentCore Memory or DynamoDB
-2. **Use consistent session ID** across all three frameworks
-3. **Enrich context at each layer** to pass relevant state downstream
-4. **Implement state synchronization** patterns for consistency
-5. **Migrate from in-memory to persistent storage** for production readiness
+1. **Add checkpointer to StateGraph** for persistent state storage (AgentCore Memory or DynamoDB)
+2. **Use consistent session ID** across all three frameworks (as `thread_id` in StateGraph config)
+3. **Enrich context at each layer** to pass relevant state downstream (handled by StateGraph nodes)
+4. **StateGraph handles state synchronization** automatically through graph execution
+5. **Add checkpointer** to StateGraph compilation for production-ready persistent storage
 
 ---
 
@@ -87,41 +87,75 @@ AWS provides **AgentCore Memory** - a fully managed, serverless primitive for st
 
 ### LangGraph State Management
 
-#### Current Implementation
+#### Current Implementation (StateGraph Pattern)
 
-The current implementation uses in-memory state management:
+The current implementation uses **LangGraph's StateGraph** pattern for declarative workflow and state management:
 
 ```python
-# From langgraph/state/state_manager.py
-class StateManager:
-    def __init__(self):
-        self.states: Dict[str, AgentState] = {}  # In-memory storage
+# From langgraph/state/graph_state.py
+class SupervisorState(TypedDict):
+    """State schema for LangGraph supervisor workflow."""
+    query: str
+    session_id: str
+    messages: List[Dict[str, Any]]  # Conversation history
+    routing_decision: Optional[Dict[str, Any]]
+    agent_responses: List[Dict[str, Any]]
+    final_response: Optional[str]
+    status: str
+    current_step: Optional[str]
+    error: Optional[str]
+    metadata: Dict[str, Any]
+    context: Optional[Dict[str, Any]]
+    start_time: Optional[float]
+    execution_time: Optional[float]
 ```
+
+**StateGraph Workflow:**
+
+The supervisor uses a StateGraph with the following nodes:
+1. **load_state** - Loads conversation history and initializes state
+2. **route_request** - Routes to appropriate agent(s)
+3. **invoke_agents** - Invokes Snowflake Cortex AI agents
+4. **combine_responses** - Combines multiple agent responses
+5. **update_memory** - Updates conversation history and patterns
+6. **log_observability** - Logs to Langfuse
+7. **handle_error** - Handles errors via conditional edges
 
 **State Components:**
 
-1. **AgentState Model** (`shared/models/agent_state.py`):
+1. **SupervisorState TypedDict** (`langgraph/state/graph_state.py`):
    - Request information (query, session_id)
-   - Agent routing (selected_agent, routing_reason)
+   - Conversation history (messages array)
+   - Routing decision (agents_to_call, routing_reason, confidence)
+   - Agent responses (list of responses from invoked agents)
+   - Final response (combined response text)
    - Processing state (status, current_step)
-   - Memory (short_term_memory, long_term_memory)
-   - Results (intermediate_results, final_response)
-   - Metadata
+   - Error handling (error message)
+   - Metadata and context
 
 2. **Short-Term Memory** (`langgraph/memory/short_term.py`):
    - Session-scoped memory with TTL (default: 1 hour)
    - Stores conversation history, routing decisions
    - Automatically expires entries based on TTL
+   - Used by `load_state` and `update_memory` nodes
 
 3. **Long-Term Memory** (`langgraph/memory/long_term.py`):
    - Cross-session memory (no expiration)
    - Stores query patterns, successful routing decisions
    - Supports search functionality
+   - Used by `update_memory` node for significant patterns
+
+**Key Benefits:**
+- **Automatic State Management**: LangGraph handles state passing between nodes
+- **Declarative Workflow**: Graph structure is clear and visualizable
+- **Built-in Checkpointing**: Can add checkpointer for persistence without code changes
+- **Error Handling**: Conditional edges route to error handler automatically
+- **No Manual State Updates**: State is managed by StateGraph, not manual create/update calls
 
 **Current Limitations:**
-- In-memory storage (lost on restart)
-- No persistence across service restarts
-- Not suitable for distributed deployments
+- In-memory state (lost on restart) - can be addressed by adding checkpointer
+- No persistence across service restarts - can add AgentCore Memory or DynamoDB checkpointer
+- Not suitable for distributed deployments - can add persistent checkpointer
 
 #### Checkpointing Options
 
@@ -387,37 +421,37 @@ async def _invoke_langgraph(
 
 #### 2. LangGraph → Snowflake
 
-**Current Implementation:**
+**Current Implementation (StateGraph):**
 ```python
-# From langgraph/supervisor.py
+# From langgraph/supervisor/graph.py - invoke_agents node
 enriched_context = {
-    **(request.context or {}),
-    "history": history[-max_history:],  # Conversation history
+    **context,
+    "history": messages[-max_history:],  # Conversation history from state
     "langgraph": {
-        "state": state_snapshot,  # State snapshot
+        "state": {
+            "session_id": session_id,
+            "status": state.get("status"),
+            "current_step": state.get("current_step"),
+        },
         "short_term_memory": short_term_memory.get_all(session_id=session_id),
     },
 }
 
 # Passed to Snowflake
-response = await client.post(
-    f"{settings.snowflake.cortex_agent_gateway_endpoint}/agents/invoke",
-    json={
-        "agent_name": agent_name,
-        "query": query,
-        "session_id": session_id,
-        "context": context or {},
-        "history": (context or {}).get("history", []),  # Explicit history
-    }
+response = await _invoke_snowflake_agent(
+    agent_name=agent_name,
+    query=query,
+    session_id=session_id,
+    context=enriched_context,
 )
 ```
 
 **State Passed:**
-- `session_id`: For correlation
-- `query`: Current query
-- `history`: Conversation history array
-- `context`: Enriched context with LangGraph state
-- `langgraph.state`: State snapshot
+- `session_id`: From state["session_id"]
+- `query`: From state["query"]
+- `history`: From state["messages"] (conversation history)
+- `context`: Enriched context with LangGraph state snapshot
+- `langgraph.state`: State snapshot (simplified, serializable)
 - `langgraph.short_term_memory`: Memory snapshot
 
 #### 3. Snowflake State Management
@@ -627,22 +661,34 @@ graph = graph_builder.compile(checkpointer=checkpointer)
 
 ### State Retrieval and Restoration
 
-#### Retrieval Pattern
+#### Retrieval Pattern (StateGraph)
 
 ```python
-# From langgraph/supervisor.py
-# Retrieve prior conversation history
-history = short_term_memory.retrieve(session_id=session_id, key="history") or []
-
-# Initialize or retrieve state
-state = state_manager.get_state(session_id)
-if not state:
-    state = state_manager.create_state(
-        query=request.query,
-        session_id=session_id,
-        initial_metadata=request.metadata
-    )
+# From langgraph/supervisor/graph.py - load_state node
+async def load_state(state: SupervisorState) -> SupervisorState:
+    """Load state and conversation history."""
+    session_id = state["session_id"]
+    query = state["query"]
+    
+    # Retrieve prior conversation history
+    history = short_term_memory.retrieve(session_id=session_id, key="history") or []
+    
+    # Append current user message
+    history.append({
+        "role": "user",
+        "content": query,
+        "ts": time.time(),
+    })
+    
+    # Update state (automatic via StateGraph)
+    state["messages"] = history
+    state["status"] = "processing"
+    state["start_time"] = time.time()
+    
+    return state
 ```
+
+**Note:** State is automatically managed by LangGraph StateGraph. No manual `get_state()` or `create_state()` calls needed.
 
 #### Restoration Strategy
 
@@ -996,22 +1042,28 @@ def create_state_snapshot(state: AgentState) -> Dict[str, Any]:
 
 2. **Implement Checkpointer**:
    ```python
-   # Replace in-memory StateManager with persistent checkpointer
+   # In langgraph/supervisor/graph.py - create_supervisor_graph()
    from langgraph_checkpoint_aws import AgentCoreMemorySaver
    
-   checkpointer = AgentCoreMemorySaver(
-       memory_id=settings.agentcore_memory_id,
-       region_name=settings.aws_region
-   )
+   def create_supervisor_graph() -> StateGraph:
+       workflow = StateGraph(SupervisorState)
+       # ... add nodes and edges ...
+       
+       # Add checkpointer for persistence
+       checkpointer = AgentCoreMemorySaver(
+           memory_id=settings.agentcore_memory_id,
+           region_name=settings.aws_region
+       )
+       
+       # Compile with checkpointer
+       graph = workflow.compile(checkpointer=checkpointer)
+       return graph
    ```
 
-3. **Update State Manager**:
-   ```python
-   # Modify to use checkpointer instead of in-memory dict
-   class StateManager:
-       def __init__(self, checkpointer):
-           self.checkpointer = checkpointer
-   ```
+3. **StateGraph automatically handles state persistence**:
+   - No need to modify state manager
+   - State is automatically saved/loaded by LangGraph
+   - Checkpointer handles all persistence logic
 
 #### Phase 2: Migrate Memory Storage
 
@@ -1072,34 +1124,30 @@ async def process_request(self, request: AgentRequest) -> AgentResponse:
         ...
     )
 
-# 2. LangGraph Supervisor
+# 2. LangGraph Supervisor (StateGraph)
 async def process_request(self, request: AgentRequest, session_id: str):
-    # Retrieve state
-    history = short_term_memory.retrieve(session_id=session_id, key="history") or []
-    state = state_manager.get_state(session_id)
-    
-    # Enrich context
-    enriched_context = {
-        "history": history[-30:],
-        "langgraph": {
-            "state": state.model_dump() if state else {},
-            "short_term_memory": short_term_memory.get_all(session_id),
-        }
+    # Convert to initial state
+    initial_state = {
+        "query": request.query,
+        "session_id": session_id,
+        "messages": [],
+        "status": "processing",
+        # ... other fields
     }
     
-    # Pass to Snowflake
-    snowflake_response = await self._invoke_snowflake_agent(
-        agent_name=agent_name,
-        query=request.query,
-        session_id=session_id,
-        context=enriched_context
-    )
+    # Invoke StateGraph
+    config = {"configurable": {"thread_id": session_id}}
+    result = await self.graph.ainvoke(initial_state, config=config)
     
-    # Update state
-    short_term_memory.store(session_id=session_id, key="history", value=updated_history)
-    state_manager.update_state(session_id, {...})
+    # StateGraph nodes handle:
+    # - load_state: Retrieves history from short_term_memory
+    # - route_request: Routes to appropriate agent
+    # - invoke_agents: Calls Snowflake with enriched context
+    # - combine_responses: Combines agent responses
+    # - update_memory: Updates history and patterns
+    # - log_observability: Logs to Langfuse
     
-    return snowflake_response
+    return self._format_response(result)
 
 # 3. Snowflake Gateway
 async def invoke_agent(self, agent_name: str, query: str, session_id: str, context: Dict):
@@ -1146,32 +1194,36 @@ result = graph.invoke(
 )
 ```
 
-#### Example 3: Historical Context Retrieval
+#### Example 3: Historical Context Retrieval (StateGraph)
 
 ```python
-# Retrieve historical patterns
-def enrich_with_history(session_id: str, query: str) -> Dict[str, Any]:
+# In load_state node (langgraph/supervisor/graph.py)
+async def load_state(state: SupervisorState) -> SupervisorState:
+    """Load state and conversation history."""
+    session_id = state["session_id"]
+    query = state["query"]
+    
     # Short-term: Current session history
-    session_history = short_term_memory.retrieve(
+    history = short_term_memory.retrieve(
         session_id=session_id,
         key="history"
     ) or []
     
-    # Long-term: Search for relevant patterns
-    user_patterns = long_term_memory.search(
-        query=query,
-        limit=5
-    )
+    # Long-term: Search for relevant patterns (optional, can be added)
+    # user_patterns = long_term_memory.search(query=query, limit=5)
     
-    # Extract user preferences
-    user_preferences = extract_preferences(user_patterns)
+    # Append current user message
+    history.append({
+        "role": "user",
+        "content": query,
+        "ts": time.time(),
+    })
     
-    return {
-        "session_history": session_history[-30:],  # Bounded window
-        "historical_patterns": user_patterns,
-        "user_preferences": user_preferences,
-        "context_summary": summarize_context(session_history, user_patterns)
-    }
+    # Update state with history
+    state["messages"] = history
+    state["status"] = "processing"
+    
+    return state
 ```
 
 ### State Persistence Implementations
@@ -1274,29 +1326,25 @@ def get_user_context(user_id: str, current_query: str) -> Dict[str, Any]:
 
 #### State Retrieval Optimization
 
-1. **Caching**:
+1. **Caching** (StateGraph handles this automatically):
    ```python
-   from functools import lru_cache
-   
-   @lru_cache(maxsize=1000)
-   def get_state_cached(session_id: str):
-       return state_manager.get_state(session_id)
+   # StateGraph with checkpointer automatically caches state
+   # No manual caching needed - LangGraph handles it
+   graph = workflow.compile(checkpointer=checkpointer)
    ```
 
-2. **Batch Operations**:
+2. **Batch Operations** (via checkpointer):
    ```python
-   # Batch retrieve multiple states
-   def batch_get_states(session_ids: List[str]) -> Dict[str, AgentState]:
-       return state_store.batch_get_items(session_ids)
+   # Checkpointer (e.g., AgentCore Memory) handles batch operations
+   # StateGraph automatically uses checkpointer for state retrieval
    ```
 
-3. **Lazy Loading**:
+3. **Lazy Loading** (StateGraph loads state on demand):
    ```python
-   # Load state only when needed
-   if need_full_state:
-       state = state_manager.get_state(session_id)
-   else:
-       state = {"session_id": session_id}  # Minimal state
+   # StateGraph loads state automatically when graph is invoked
+   # State is loaded from checkpointer based on thread_id
+   config = {"configurable": {"thread_id": session_id}}
+   result = await graph.ainvoke(initial_state, config=config)
    ```
 
 #### State Size Management
@@ -1320,13 +1368,13 @@ def get_user_context(user_id: str, current_query: str) -> Dict[str, Any]:
    }
    ```
 
-3. **State Cleanup**:
+3. **State Cleanup** (via checkpointer):
    ```python
-   # Periodic cleanup of expired states
-   def cleanup_expired_states():
-       expired_sessions = find_expired_sessions()
-       for session_id in expired_sessions:
-           state_manager.delete_state(session_id)
+   # Checkpointer handles state cleanup automatically
+   # For AgentCore Memory: TTL-based cleanup
+   # For DynamoDB: Use TTL attribute
+   # For Redis: Use TTL expiration
+   # No manual cleanup needed - handled by checkpointer
    ```
 
 ### Security Considerations
@@ -1398,16 +1446,20 @@ def get_user_context(user_id: str, current_query: str) -> Dict[str, Any]:
 
 #### State Synchronization
 
-1. **Event-Driven Updates**:
+1. **Event-Driven Updates** (StateGraph with custom node):
    ```python
-   # Publish state updates to event stream
-   def update_state_with_event(session_id: str, update: Dict):
-       state_manager.update_state(session_id, update)
+   # Add custom node to StateGraph for event publishing
+   async def publish_state_update(state: SupervisorState) -> SupervisorState:
+       """Publish state update to event stream."""
        event_stream.publish({
            "event_type": "state_updated",
-           "session_id": session_id,
-           "update": update
+           "session_id": state["session_id"],
+           "update": state
        })
+       return state
+   
+   # Add to workflow
+   workflow.add_node("publish_update", publish_state_update)
    ```
 
 2. **Conflict Resolution**:

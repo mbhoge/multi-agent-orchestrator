@@ -8,8 +8,9 @@ botocore==1.32.7
 # HTTP client
 httpx==0.25.2
 
-# LangGraph (when available, using placeholder)
-# langgraph==0.0.1  # Update when official package is available
+# LangGraph
+langgraph>=0.0.40
+langchain-core>=0.1.0
 
 # Langfuse
 langfuse==2.0.0

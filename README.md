@@ -25,11 +25,14 @@ User Request → AWS Agent Core (REST API) → LangGraph Supervisor → Snowflak
    - **Langfuse prompt management**: Uses `orchestrator_query` prompt
    - Invokes LangGraph for reasoning
 
-2. **LangGraph**: Multi-agent supervisor with state and memory management
-   - State management (short-term and long-term memory)
+2. **LangGraph**: Multi-agent supervisor using StateGraph pattern
+   - **StateGraph workflow**: Declarative workflow with nodes (load_state, route_request, invoke_agents, combine_responses, update_memory, log_observability, handle_error)
+   - **Automatic state management**: LangGraph handles state passing between nodes
    - Request routing to appropriate Snowflake agents
+   - Memory management (short-term and long-term memory)
    - **Langfuse prompt management**: Uses `supervisor_routing` prompt for routing decisions
    - Langfuse integration for observability
+   - Built-in checkpointing support (can add checkpointer for persistence)
 
 3. **Snowflake Cortex AI Agents**: Specialized agents for data queries
    - **Cortex AI Analyst**: Queries structured data using semantic models (YAML)
@@ -47,7 +50,12 @@ User Request → AWS Agent Core (REST API) → LangGraph Supervisor → Snowflak
 ```
 multi-agent-orchestrator/
 ├── aws_agent_core/          # AWS Agent Core orchestrator
-├── langgraph/               # LangGraph supervisor and state management
+├── langgraph/               # LangGraph supervisor with StateGraph workflow
+│   ├── supervisor/         # StateGraph definition and nodes
+│   ├── state/              # State schema (TypedDict for StateGraph)
+│   ├── memory/             # Memory management (short-term and long-term)
+│   ├── reasoning/           # Agent routing logic
+│   └── observability/      # Langfuse integration
 ├── snowflake_cortex/        # Snowflake Cortex AI agents and tools
 ├── langfuse/                # Langfuse configuration
 ├── shared/                  # Shared utilities and models
@@ -283,7 +291,9 @@ Prompts support variable substitution using `{variable_name}` syntax. Common var
 
 - **Shared components**: Common utilities, models, and configuration
 - **AWS Agent Core**: Orchestrator and REST API
-- **LangGraph**: Supervisor, state management, memory, routing
+- **LangGraph**: Supervisor with StateGraph workflow, memory management, routing
+  - StateGraph nodes: load_state, route_request, invoke_agents, combine_responses, update_memory, log_observability, handle_error
+  - State managed automatically by LangGraph (no manual state_manager calls)
 - **Snowflake Cortex**: Agents, tools (Analyst, Search), gateway
 
 ### Adding New Agents
