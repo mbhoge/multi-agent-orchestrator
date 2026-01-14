@@ -7,7 +7,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.state.graph_state import SupervisorState
 from langgraph.memory.short_term import short_term_memory
 from langgraph.memory.long_term import long_term_memory
-from langgraph.reasoning.router import agent_router
+from langgraph.supervisor.policies import get_routing_policy
 from langgraph.observability.langfuse_client import LangfuseClient
 from shared.config.settings import settings
 from shared.utils.exceptions import LangGraphError
@@ -97,17 +97,26 @@ async def route_request(state: SupervisorState) -> SupervisorState:
     logger.info(f"Routing request for session {session_id}")
     
     try:
-        # Get prompt for routing decision
-        routing_prompt = await langfuse_client.get_prompt_for_routing(
+        # Routing policy strategy (selected via LANGGRAPH_ROUTING_MODE).
+        #
+        # This keeps the supervisor workflow stable while allowing multiple routing
+        # behaviors (optimized router vs. handoffs) to coexist and be tested separately.
+        routing_policy = get_routing_policy()
+
+        agent_preference = state.get("metadata", {}).get("agent_preference")
+
+        # Prompt rendering is passed into the policy as a callback so the policy can
+        # decide to SKIP prompt + routing calls for follow-ups (latency optimization).
+        async def render_routing_prompt() -> str:
+            return await langfuse_client.get_prompt_for_routing(query=query, context=context)
+
+        routing_decision = await routing_policy.decide(
+            session_id=session_id,
             query=query,
-            context=context
-        )
-        
-        # Route request to appropriate agent(s)
-        routing_decision = agent_router.route_request(
-            query=routing_prompt,
             context=context,
-            agent_preference=state.get("metadata", {}).get("agent_preference")
+            messages=state.get("messages", []) or [],
+            agent_preference=agent_preference,
+            render_routing_prompt=render_routing_prompt,
         )
         
         # Update state
@@ -121,7 +130,10 @@ async def route_request(state: SupervisorState) -> SupervisorState:
             value=routing_decision,
         )
         
-        logger.info(f"Routed to agents: {routing_decision.get('agents_to_call', [])}")
+        logger.info(
+            f"Routed to agents: {routing_decision.get('agents_to_call', [])} "
+            f"(mode={settings.langgraph.routing_mode})"
+        )
         return state
         
     except Exception as e:

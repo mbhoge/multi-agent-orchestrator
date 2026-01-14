@@ -300,7 +300,8 @@ Prompts support variable substitution using `{variable_name}` syntax. Common var
 
 1. Create agent class in `snowflake_cortex/agents/`
 2. Add configuration in `config/agents.yaml`
-3. Update routing logic in `langgraph/reasoning/router.py`
+3. Update routing behavior via a policy in `langgraph/supervisor/policies/`
+   - See `docs/ROUTING_STRATEGIES.md` for `optimized_router` vs `handoffs`
 4. Add tests in `tests/unit/test_snowflake_cortex.py`
 
 ### Adding New Tools
