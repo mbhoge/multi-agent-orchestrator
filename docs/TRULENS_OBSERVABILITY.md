@@ -20,10 +20,19 @@ Set these to enable tracing and evaluation:
 TRULENS_ENABLED=true
 TRULENS_OTEL_TRACING=1
 TRULENS_EVAL_ENABLED=true
-TRULENS_EVAL_MODEL=gpt-4o
+TRULENS_EVAL_SNOWFLAKE_ENABLED=true
+TRULENS_EVAL_SNOWFLAKE_MODE=connector
+TRULENS_EVAL_MODEL=llama3.2-3b
 TRULENS_DB_URL=sqlite:///trulens.sqlite
 PLANNER_LLM_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
 PLANNER_LLM_REGION=us-east-1
+SNOWFLAKE_ACCOUNT=your_account
+SNOWFLAKE_USER=your_user
+SNOWFLAKE_PASSWORD=your_password
+SNOWFLAKE_ROLE=your_role
+SNOWFLAKE_WAREHOUSE=your_warehouse
+SNOWFLAKE_DATABASE=your_database
+SNOWFLAKE_SCHEMA=your_schema
 ```
 
 ### Instrumented spans
@@ -43,13 +52,15 @@ The `TruLensClient` emits spans using `@instrument`:
 
 ### RAG‑Triad evaluation
 
-When `TRULENS_EVAL_ENABLED=true`, evaluations run for each agent response:
+When `TRULENS_EVAL_ENABLED=true` and `TRULENS_EVAL_SNOWFLAKE_ENABLED=true`,
+evaluations run for each agent response using `CORTEX.COMPLETE`:
 
 - **Answer relevance**: query vs final response
 - **Context relevance**: query vs each retrieved context
 - **Groundedness**: final response vs retrieved contexts
 
-These are computed in `TruLensClient.evaluate_response(...)` using a TruLens provider.
+These are computed in `TruLensClient.evaluate_response(...)` via a Snowflake
+connector or Snowpark session, depending on `TRULENS_EVAL_SNOWFLAKE_MODE`.
 
 ### Execution flow
 

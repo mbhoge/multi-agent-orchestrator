@@ -6,6 +6,7 @@ Refactor notes:
 - Provides GPA-style composite scoring for agent evaluations.
 """
 
+import json
 import logging
 import os
 from typing import Any, Dict, List, Optional
@@ -59,6 +60,16 @@ except Exception:  # pragma: no cover - optional dependency
     OpenAIProvider = None
     np = None
 
+try:  # pragma: no cover - optional dependency
+    import snowflake.connector  # type: ignore[import-not-found]
+except Exception:
+    snowflake = None  # type: ignore
+
+try:  # pragma: no cover - optional dependency
+    from snowflake.snowpark import Session  # type: ignore[import-not-found]
+except Exception:
+    Session = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,6 +88,13 @@ class TruLensClient:
         self.app_id = trulens_settings.trulens_app_id
         self.api_key = trulens_settings.trulens_api_key
         self.eval_enabled = os.getenv("TRULENS_EVAL_ENABLED", "true").lower() in {"1", "true", "yes"}
+        self.snowflake_eval_enabled = os.getenv(
+            "TRULENS_EVAL_SNOWFLAKE_ENABLED", "false"
+        ).lower() in {"1", "true", "yes"}
+        self.snowflake_eval_mode = os.getenv(
+            "TRULENS_EVAL_SNOWFLAKE_MODE", "connector"
+        ).lower()
+        self.eval_model = os.getenv("TRULENS_EVAL_MODEL", "llama3.2-3b")
         logger.info(f"Initialized TruLens client: enabled={self.enabled}")
         if self.enabled:
             os.environ.setdefault("TRULENS_OTEL_TRACING", "1")
@@ -102,7 +120,7 @@ class TruLensClient:
             return []
         try:
             provider = OpenAIProvider(
-                model_engine=os.getenv("TRULENS_EVAL_MODEL", "llama3.2-3b")
+                model_engine=self.eval_model
             )
 
             f_groundedness = (
@@ -151,6 +169,124 @@ class TruLensClient:
         except Exception as exc:
             logger.warning(f"Failed to build TruLens feedbacks: {exc}")
             return []
+
+    def _get_snowflake_connection(self) -> Optional[Any]:
+        """Create a Snowflake connector session for Cortex evals."""
+        if snowflake is None:
+            return None
+        try:
+            return snowflake.connector.connect(
+                account=os.getenv("SNOWFLAKE_ACCOUNT"),
+                user=os.getenv("SNOWFLAKE_USER"),
+                password=os.getenv("SNOWFLAKE_PASSWORD"),
+                role=os.getenv("SNOWFLAKE_ROLE"),
+                warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
+                database=os.getenv("SNOWFLAKE_DATABASE"),
+                schema=os.getenv("SNOWFLAKE_SCHEMA"),
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to create Snowflake connection: {exc}")
+            return None
+
+    def _get_snowpark_session(self) -> Optional[Any]:
+        """Create a Snowpark session for Cortex evals."""
+        if Session is None:
+            return None
+        try:
+            return Session.builder.configs(
+                {
+                    "account": os.getenv("SNOWFLAKE_ACCOUNT"),
+                    "user": os.getenv("SNOWFLAKE_USER"),
+                    "password": os.getenv("SNOWFLAKE_PASSWORD"),
+                    "role": os.getenv("SNOWFLAKE_ROLE"),
+                    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE"),
+                    "database": os.getenv("SNOWFLAKE_DATABASE"),
+                    "schema": os.getenv("SNOWFLAKE_SCHEMA"),
+                }
+            ).create()
+        except Exception as exc:
+            logger.warning(f"Failed to create Snowpark session: {exc}")
+            return None
+
+    @staticmethod
+    def _extract_json(text: str) -> Optional[Dict[str, Any]]:
+        """Extract a JSON object from a model response string."""
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        try:
+            return json.loads(text[start : end + 1])
+        except Exception:
+            return None
+
+    def _build_eval_prompt(
+        self, *, query: str, response: str, retrieved_contexts: List[str]
+    ) -> str:
+        context_text = "\n\n".join(retrieved_contexts) if retrieved_contexts else "N/A"
+        return (
+            "You are an evaluator. Return ONLY valid JSON with float fields "
+            "answer_relevance, context_relevance, groundedness (0 to 1).\n\n"
+            f"Question:\n{query}\n\n"
+            f"Answer:\n{response}\n\n"
+            f"Context:\n{context_text}\n"
+        )
+
+    def _evaluate_with_cortex(
+        self, *, query: str, response: str, retrieved_contexts: List[str]
+    ) -> Dict[str, Any]:
+        """Run evals in Snowflake using CORTEX.COMPLETE."""
+        prompt = self._build_eval_prompt(
+            query=query, response=response, retrieved_contexts=retrieved_contexts
+        )
+        sql = "SELECT CORTEX.COMPLETE(%(model)s, %(prompt)s) AS result"
+        result_text = ""
+        if self.snowflake_eval_mode == "snowpark":
+            session = self._get_snowpark_session()
+            if session is None:
+                return {"evaluated": False, "error": "Snowpark session not available"}
+            try:
+                df = session.sql(
+                    sql, params={"model": self.eval_model, "prompt": prompt}
+                )
+                rows = df.collect()
+                result_text = rows[0][0] if rows else ""
+            finally:
+                try:
+                    session.close()
+                except Exception:
+                    pass
+        else:
+            conn = self._get_snowflake_connection()
+            if conn is None:
+                return {"evaluated": False, "error": "Snowflake connector not available"}
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(sql, {"model": self.eval_model, "prompt": prompt})
+                    row = cur.fetchone()
+                    result_text = row[0] if row else ""
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        parsed = self._extract_json(str(result_text))
+        if not parsed:
+            return {
+                "evaluated": False,
+                "error": "Failed to parse Cortex eval JSON",
+                "raw": str(result_text),
+            }
+        return {
+            "evaluated": True,
+            "answer_relevance": float(parsed.get("answer_relevance", 0.0)),
+            "context_relevance": float(parsed.get("context_relevance", 0.0)),
+            "groundedness": float(parsed.get("groundedness", 0.0)),
+        }
 
     @instrument(
         span_type=SpanAttributes.SpanType.RETRIEVAL,
@@ -308,29 +444,12 @@ class TruLensClient:
                 return {"evaluated": False}
             
             logger.debug("Evaluating response with TruLens")
-            
-            if OpenAIProvider is None:
-                return {"evaluated": False, "error": "TruLens provider not available"}
-
-            provider = OpenAIProvider(
-                model_engine=os.getenv("TRULENS_EVAL_MODEL", "llama3.2-3b")
-            )
+            if not self.snowflake_eval_enabled:
+                return {"evaluated": False, "reason": "Snowflake eval disabled"}
             retrieved_contexts = (context or {}).get("retrieved_contexts") or []
-
-            answer_relevance = provider.relevance_with_cot_reasons(query, response)
-            groundedness = provider.groundedness_measure_with_cot_reasons(retrieved_contexts, response)
-
-            context_scores = []
-            for ctx in retrieved_contexts:
-                context_scores.append(provider.context_relevance_with_cot_reasons(query, ctx))
-            context_relevance = float(sum(context_scores) / len(context_scores)) if context_scores else 0.0
-
-            return {
-                "evaluated": True,
-                "answer_relevance": answer_relevance,
-                "context_relevance": context_relevance,
-                "groundedness": groundedness,
-            }
+            return self._evaluate_with_cortex(
+                query=query, response=response, retrieved_contexts=retrieved_contexts
+            )
             
         except Exception as e:
             logger.error(f"Error evaluating with TruLens: {str(e)}")
