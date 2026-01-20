@@ -66,17 +66,19 @@ graph_builder = StateGraph(SupervisorState)
 
 # Add supervisor nodes (matches langgraph/supervisor/graph.py)
 graph_builder.add_node("load_state", load_state)
-graph_builder.add_node("route_request", route_request)
+graph_builder.add_node("plan_request", plan_request)
+graph_builder.add_node("execute_plan", execute_plan)
 graph_builder.add_node("invoke_agents", invoke_agents)
 graph_builder.add_node("combine_responses", combine_responses)
+graph_builder.add_node("advance_plan", advance_plan)
 graph_builder.add_node("update_memory", update_memory)
 graph_builder.add_node("log_observability", log_observability)
 graph_builder.add_node("handle_error", handle_error)
 
 # Add edges
 graph_builder.add_edge(START, "load_state")
-graph_builder.add_edge("load_state", "route_request")
-# ... conditional edges for error handling ...
+graph_builder.add_edge("load_state", "plan_request")
+# ... conditional edges for error handling and planning loop ...
 graph_builder.add_edge("update_memory", "log_observability")
 graph_builder.add_edge("log_observability", END)
 
@@ -107,6 +109,9 @@ def agent_invocation(payload, context):
         "query": user_message,
         "session_id": session_id,
         "messages": [],
+        "plan": None,
+        "plan_current_step": 1,
+        "replan_flag": False,
         "routing_decision": None,
         "agent_responses": [],
         "final_response": None,

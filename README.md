@@ -26,7 +26,7 @@ User Request → AWS Agent Core (REST API) → LangGraph Supervisor → Snowflak
    - Invokes LangGraph for reasoning
 
 2. **LangGraph**: Multi-agent supervisor using StateGraph pattern
-   - **StateGraph workflow**: Declarative workflow with nodes (load_state, route_request, invoke_agents, combine_responses, update_memory, log_observability, handle_error)
+   - **StateGraph workflow**: Declarative workflow with nodes (load_state, plan_request, execute_plan, invoke_agents, combine_responses, advance_plan, update_memory, log_observability, handle_error)
    - **Automatic state management**: LangGraph handles state passing between nodes
    - Request routing to appropriate Snowflake agents
    - Memory management (short-term and long-term memory)
@@ -145,6 +145,7 @@ See `.env.example` for all configuration options. Key variables:
 
 - **AWS**: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
 - **LangGraph**: `LANGGRAPH_ENDPOINT`, `LANGGRAPH_TIMEOUT`
+- **Planner LLM (Bedrock)**: `PLANNER_LLM_MODEL_ID`, `PLANNER_LLM_REGION`, `PLANNER_LLM_TEMPERATURE`, `PLANNER_LLM_MAX_TOKENS`
 - **Langfuse**: `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`
 - **Snowflake**: `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD`, etc.
 - **TruLens**: `TRULENS_ENABLED`, `TRULENS_APP_ID`, `TRULENS_API_KEY`
@@ -292,7 +293,7 @@ Prompts support variable substitution using `{variable_name}` syntax. Common var
 - **Shared components**: Common utilities, models, and configuration
 - **AWS Agent Core**: Orchestrator and REST API
 - **LangGraph**: Supervisor with StateGraph workflow, memory management, routing
-  - StateGraph nodes: load_state, route_request, invoke_agents, combine_responses, update_memory, log_observability, handle_error
+  - StateGraph nodes: load_state, plan_request, execute_plan, invoke_agents, combine_responses, advance_plan, update_memory, log_observability, handle_error
   - State managed automatically by LangGraph (no manual state_manager calls)
 - **Snowflake Cortex**: Agents, tools (Analyst, Search), gateway
 
@@ -301,7 +302,7 @@ Prompts support variable substitution using `{variable_name}` syntax. Common var
 1. Create agent class in `snowflake_cortex/agents/`
 2. Add configuration in `config/agents.yaml`
 3. Update routing behavior via a policy in `langgraph/supervisor/policies/`
-   - See `docs/ROUTING_STRATEGIES.md` for `optimized_router` vs `handoffs`
+  - Planner/executor flow: see `langgraph/supervisor/planning.py`
 4. Add tests in `tests/unit/test_snowflake_cortex.py`
 
 ### Adding New Tools

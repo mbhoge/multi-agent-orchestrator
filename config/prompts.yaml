@@ -16,6 +16,25 @@ prompts:
     variables:
       - query
       - context
+
+  - name: supervisor_planner
+    description: "Prompt for LangGraph supervisor planner to create a step-by-step plan"
+    default_template: "You are the Planner. Create numbered steps with an agent and action for each step. User query: {query}\n\nAvailable agents:\n{agent_list}\n\nGuidelines:\n{guidelines}\n\nReturn ONLY valid JSON."
+    variables:
+      - query
+      - agent_list
+      - guidelines
+      - context
+
+  - name: supervisor_executor
+    description: "Prompt for LangGraph supervisor executor to select next agent/action"
+    default_template: "You are the Executor. Decide if replan is needed, which agent to run next, and the query to send. User query: {query}\n\nCurrent step: {current_step}\nPlan step: {plan_step}\n\nGuidelines:\n{guidelines}\n\nReturn ONLY valid JSON."
+    variables:
+      - query
+      - current_step
+      - plan_step
+      - guidelines
+      - context
   
   - name: snowflake_cortex_analyst
     description: "Prompt for Snowflake Cortex AI Analyst to convert queries to SQL"

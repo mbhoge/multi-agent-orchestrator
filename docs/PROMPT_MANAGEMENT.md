@@ -6,7 +6,7 @@ This document describes the Langfuse prompt management functionality integrated 
 
 Langfuse prompt management is integrated into:
 - **AWS Agent Core**: Orchestrator uses prompts for query processing
-- **LangGraph**: Supervisor uses prompts for routing decisions
+- **LangGraph**: Supervisor uses prompts for planning and execution decisions
 - **Snowflake Tier (Gateway)**: Pass-through only (Snowflake agent objects manage their own prompts/instructions)
 
 ## Architecture
@@ -14,7 +14,7 @@ Langfuse prompt management is integrated into:
 ```
 Langfuse Prompt Manager
     ├── AWS Agent Core (orchestrator_query)
-    ├── LangGraph Supervisor (supervisor_routing)
+    ├── LangGraph Supervisor (supervisor_planner, supervisor_executor, Bedrock planner LLM)
     └── Snowflake Cortex Agent Objects (in Snowflake)
         └── Prompts/instructions live with the agent object configuration
 ```
@@ -53,20 +53,14 @@ if orchestrator_prompt:
 **Location**: `langgraph/supervisor.py` and `langgraph/observability/langfuse_client.py`
 
 **Usage**:
-- Fetches `supervisor_routing` prompt for routing decisions
-- Renders prompt with query and context
-- Uses enhanced prompt for agent routing
+- Fetches `supervisor_planner` prompt for plan generation
+- Fetches `supervisor_executor` prompt for next‑agent selection
+- Renders prompt with query, plan step, and context
 
 **Example**:
 ```python
-routing_prompt = await self.langfuse_client.get_prompt_for_routing(
-    query=request.query,
-    context=request.context
-)
-routing_decision = agent_router.route_request(
-    query=routing_prompt,
-    context=request.context
-)
+planner_prompt = await prompt_manager.get_prompt("supervisor_planner")
+executor_prompt = await prompt_manager.get_prompt("supervisor_executor")
 ```
 
 ### 3. Snowflake Cortex Agent Objects (Snowflake-managed prompts)
@@ -113,10 +107,26 @@ curl -X POST http://localhost:8002/prompts \
    - Variables: `{query}`, `{session_id}`, `{context}`
    - Default: "You are a multi-agent orchestrator. Process the following query: {query}"
 
-2. **supervisor_routing**
+2. **supervisor_planner**
    - Used by: LangGraph Supervisor
-   - Variables: `{query}`, `{context}`
-   - Default: "Analyze the following query and determine the best agent to handle it: {query}\n\nContext: {context}"
+   - Variables: `{query}`, `{agent_list}`, `{guidelines}`, `{context}`
+   - Default: "You are the Planner. Create numbered steps with an agent and action for each step. User query: {query}..."
+
+3. **supervisor_executor**
+   - Used by: LangGraph Supervisor
+   - Variables: `{query}`, `{current_step}`, `{plan_step}`, `{guidelines}`, `{context}`
+   - Default: "You are the Executor. Decide if replan is needed, which agent to run next, and the query to send..."
+
+## Planner LLM (Bedrock)
+
+The planner/executor uses an AWS Bedrock SLM configured via:
+
+```
+PLANNER_LLM_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+PLANNER_LLM_REGION=us-east-1
+PLANNER_LLM_TEMPERATURE=0.1
+PLANNER_LLM_MAX_TOKENS=1024
+```
 
 3. **snowflake_agent_domain_prompt** (optional / Snowflake-side)
    - Used by: Snowflake Cortex Agent objects (configured in Snowflake, not fetched by this codebase)

@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, List, Tuple
 import httpx
 from shared.config.settings import settings
 from shared.utils.exceptions import SnowflakeCortexError
+from snowflake_cortex.observability.trulens_client import TruLensClient
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class CortexAgentGateway:
     def __init__(self):
         """Initialize the agent gateway client."""
         self.snowflake_config = settings.snowflake
+        self.trulens_client = TruLensClient(settings.trulens)
         logger.info("Initialized Cortex Agent Gateway client (Agents Run API)")
 
     def _snowflake_api_base(self) -> str:
@@ -78,6 +80,100 @@ class CortexAgentGateway:
         if "tool_choice" in ctx and isinstance(ctx["tool_choice"], dict):
             return ctx["tool_choice"]
         return {"type": "auto"}
+
+    def _normalize_tool_call(self, call: Dict[str, Any]) -> Dict[str, Any]:
+        """Best-effort normalization of a tool call event into a common shape."""
+        tool_name = call.get("tool_name") or call.get("name")
+        tool_input = call.get("tool_input") or call.get("input") or call.get("arguments")
+        tool_output = call.get("tool_output") or call.get("output") or call.get("result") or call.get("response")
+
+        # Handle OpenAI-style function call shape: {"function": {"name": "...", "arguments": "..."}}
+        if not tool_name and isinstance(call.get("function"), dict):
+            tool_name = call["function"].get("name")
+            tool_input = tool_input or call["function"].get("arguments")
+
+        # Attempt to parse JSON string inputs for readability
+        if isinstance(tool_input, str):
+            try:
+                tool_input = json.loads(tool_input)
+            except Exception:
+                pass
+
+        return {
+            "tool_name": str(tool_name or "unknown"),
+            "tool_input": tool_input if isinstance(tool_input, dict) else (tool_input or {}),
+            "tool_output": tool_output,
+        }
+
+    def _extract_tool_calls(self, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Extract tool calls from SSE events (best-effort, schema-agnostic)."""
+        calls: List[Dict[str, Any]] = []
+        for ev in events or []:
+            if not isinstance(ev, dict):
+                continue
+
+            if isinstance(ev.get("tool_calls"), list):
+                for c in ev["tool_calls"]:
+                    if isinstance(c, dict):
+                        calls.append(self._normalize_tool_call(c))
+
+            for key in ("tool_call", "tool"):
+                if isinstance(ev.get(key), dict):
+                    calls.append(self._normalize_tool_call(ev[key]))
+
+            # Some providers emit typed events
+            if ev.get("type") in {"tool_call", "tool_result"} and isinstance(ev.get("data"), dict):
+                calls.append(self._normalize_tool_call(ev["data"]))
+
+        return calls
+
+    def _extract_retrieved_contexts(self, tool_calls: List[Dict[str, Any]]) -> List[str]:
+        """Collect textual contexts from tool outputs for RAG evaluations."""
+        contexts: List[str] = []
+        for call in tool_calls or []:
+            output = call.get("tool_output")
+            if isinstance(output, str):
+                contexts.append(output)
+            elif isinstance(output, list):
+                contexts.extend([str(item) for item in output if isinstance(item, str)])
+            elif isinstance(output, dict):
+                for key in ("content", "text", "summary", "snippet", "answer", "result"):
+                    if isinstance(output.get(key), str):
+                        contexts.append(output[key])
+        return contexts
+
+    def _extract_selected_tools(self, ctx: Dict[str, Any], events: List[Dict[str, Any]]) -> List[str]:
+        """Best-effort extraction of selected tool names."""
+        selected: List[str] = []
+
+        tool_choice = ctx.get("tool_choice")
+        if isinstance(tool_choice, dict):
+            names = tool_choice.get("name")
+            if isinstance(names, list):
+                selected.extend([str(n) for n in names if n])
+
+        for key in ("tools", "tool_specs"):
+            if isinstance(ctx.get(key), list):
+                for item in ctx[key]:
+                    if isinstance(item, dict) and item.get("name"):
+                        selected.append(str(item["name"]))
+
+        if isinstance(ctx.get("tool_resources"), dict):
+            selected.extend([str(k) for k in ctx["tool_resources"].keys() if k])
+
+        for call in self._extract_tool_calls(events):
+            name = call.get("tool_name")
+            if name:
+                selected.append(str(name))
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique = []
+        for name in selected:
+            if name not in seen:
+                seen.add(name)
+                unique.append(name)
+        return unique
 
     async def _post_sse(self, url: str, body: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
         """POST to an SSE endpoint, accumulate text deltas and return (final_text, events)."""
@@ -204,7 +300,7 @@ class CortexAgentGateway:
             )
             final_text, events = await self._post_sse(url=url, body=body)
 
-            return {
+            result = {
                 "response": final_text or "(no response text parsed from SSE)",
                 "agent_name": agent_name,
                 "session_id": session_id,
@@ -212,6 +308,32 @@ class CortexAgentGateway:
                 "raw_events_sample": events[:5],
                 "sources": [],
             }
+
+            # Observability: capture tool calls and trace execution via TruLens
+            try:
+                tool_calls = self._extract_tool_calls(events)
+                selected_tools = self._extract_selected_tools(ctx, events)
+                retrieved_contexts = self._extract_retrieved_contexts(tool_calls)
+                ground_truth = (
+                    ctx.get("ground_truth")
+                    or ctx.get("expected_response")
+                    or ctx.get("golden_response")
+                )
+                await self.trulens_client.log_agent_execution(
+                    session_id=session_id,
+                    agent_type=agent_name,
+                    query=query,
+                    result=result,
+                    metadata={"raw_events_count": len(events)},
+                    selected_tools=selected_tools,
+                    tool_calls=tool_calls,
+                    retrieved_contexts=retrieved_contexts,
+                    ground_truth=ground_truth,
+                )
+            except Exception:
+                logger.debug("TruLens logging failed (best-effort).")
+
+            return result
                 
         except httpx.HTTPError as e:
             logger.error(f"HTTP error invoking Cortex agent: {str(e)}")

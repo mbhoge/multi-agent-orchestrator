@@ -210,38 +210,39 @@
 │                     │ Rendered Prompt: "Analyze query: What are sales?..."                          │
 │                     ▼                                                                                  │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐      │
-│  │  Node 2: route_request                                                                       │      │
-│  │  - Get routing prompt from Langfuse                                                          │      │
-│  │  - Call agent_router.route_request()                                                        │      │
-│  │  - Store routing decision in state                                                          │      │
+│  │  Node 2: plan_request + execute_plan (LLM)                                                    │      │
+│  │  - Planner LLM generates numbered plan                                                        │      │
+│  │  - Executor LLM selects next agent + query                                                    │      │
+│  │  - Store routing decision in state (agents_to_call, reason, confidence)                       │      │
 │  │                                                                                               │      │
 │  │  ┌────────────────────────────────────────────────────────────────────────────┐             │      │
-│  │  │  Routing Decision Logic (langgraph/reasoning/router.py):                   │             │      │
+│  │  │  Planner/Executor Decision Logic:                                         │             │      │
 │  │  │                                                                             │             │      │
-│  │  │  1. Analyze Query:                                                         │             │      │
-│  │  │     - Query type detection (structured vs unstructured)                   │             │      │
-│  │  │     - Context analysis (data_type, time_range, etc.)                      │             │      │
-│  │  │     - Agent preference consideration                                       │             │      │
+│  │  │  1. Planner:                                                               │             │      │
+│  │  │     { "1": {"agent": "...", "action": "..."}, "2": {...} }                │             │      │
 │  │  │                                                                             │             │      │
-│  │  │  2. Routing Decision:                                                      │             │      │
+│  │  │  2. Executor:                                                              │             │      │
+│  │  │     { "replan": false, "goto": "AGENT", "query": "...", "reason": "..." }  │             │      │
+│  │  │                                                                             │             │      │
+│  │  │  3. Routing Decision:                                                      │             │      │
 │  │  │     {                                                                       │             │      │
-│  │  │       "agents_to_call": ["MARKET_SEGMENT_AGENT"],                         │             │      │
-│  │  │       "routing_reason": "Query requires structured data analysis",        │             │      │
-│  │  │       "confidence": 0.95                                                   │             │      │
+│  │  │       "agents_to_call": ["MARKET_SEGMENT_AGENT"],                          │             │      │
+│  │  │       "routing_reason": "Executor: <reason>",                              │             │      │
+│  │  │       "confidence": 0.70                                                   │             │      │
 │  │  │     }                                                                       │             │      │
 │  │  │                                                                             │             │      │
-│  │  │  3. Update State (automatic via StateGraph):                                │             │      │
-│  │  │     state["routing_decision"] = routing_decision                          │             │      │
-│  │  │     state["current_step"] = "route_request"                                │             │      │
+│  │  │  4. Update State (automatic via StateGraph):                                │             │      │
+│  │  │     state["routing_decision"] = routing_decision                            │             │      │
+│  │  │     state["current_step"] = "execute_plan"                                  │             │      │
 │  │  └────────────────────────────────────────────────────────────────────────────┘             │      │
 │  │                                                                                               │      │
 │  │  📊 OBSERVABILITY:                                                                            │      │
-│  │     - Routing decision logged                                                                │      │
+│  │     - Planner/Executor decisions logged                                                       │      │
 │  │     - Confidence score tracked                                                               │      │
-│  │     - Routing time measured                                                                  │      │
+│  │     - Planning time measured                                                                 │      │
 │  └──────────────────┬──────────────────────────────────────────────────────────────────────────┘      │
 │                     │                                                                                  │
-│                     │ StateGraph Conditional Edge: route_request → invoke_agents (or handle_error)   │
+│                     │ StateGraph Conditional Edge: execute_plan → invoke_agents (or handle_error)    │
 │                     ▼                                                                                  │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐      │
 │  │  Step 4: Memory Management                                                                  │      │
@@ -918,12 +919,14 @@
 │  State Updates (StateGraph Nodes):                                                             │
 │  ┌────────────────────────────────────────────────────────────────────────────┐             │
 │  │  1. load_state: status="processing", current_step="load_state"            │             │
-│  │  2. route_request: routing_decision set, current_step="route_request"     │             │
-│  │  3. invoke_agents: agent_responses set, current_step="invoke_agents"      │             │
-│  │  4. combine_responses: final_response set, current_step="combine_responses"│            │
-│  │  5. update_memory: messages updated, current_step="update_memory"          │             │
-│  │  6. log_observability: status="completed", current_step="completed"        │             │
-│  │  7. handle_error: status="failed", error set (if error occurs)            │             │
+│  │  2. plan_request: plan set, current_step="plan_request"                   │             │
+│  │  3. execute_plan: routing_decision set, current_step="execute_plan"       │             │
+│  │  4. invoke_agents: agent_responses set, current_step="invoke_agents"      │             │
+│  │  5. combine_responses: final_response set, current_step="combine_responses"│            │
+│  │  6. advance_plan: step advanced, current_step="advance_plan"              │             │
+│  │  7. update_memory: messages updated, current_step="update_memory"         │             │
+│  │  8. log_observability: status="completed", current_step="completed"       │             │
+│  │  9. handle_error: status="failed", error set (if error occurs)            │             │
 │  └────────────────────────────────────────────────────────────────────────────┘             │
 │                                                                                               │
 │  State Retrieval (StateGraph):                                                                 │

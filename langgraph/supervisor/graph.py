@@ -2,13 +2,15 @@
 
 import logging
 import time
-from typing import Dict, Any, Optional
+import json
+from typing import Dict, Any, Optional, List
 from langgraph.graph import StateGraph, START, END
 from langgraph.state.graph_state import SupervisorState
 from langgraph.memory.short_term import short_term_memory
 from langgraph.memory.long_term import long_term_memory
-from langgraph.supervisor.policies import get_routing_policy
 from langgraph.observability.langfuse_client import LangfuseClient
+from langgraph.supervisor.planning import plan_prompt, executor_prompt
+from langgraph.supervisor.llm_client import PlannerLLMClient
 from shared.config.settings import settings
 from shared.utils.exceptions import LangGraphError
 
@@ -18,6 +20,7 @@ logger = logging.getLogger(__name__)
 langfuse_client: Optional[LangfuseClient] = None
 snowflake_gateway_endpoint: Optional[str] = None
 langgraph_timeout: Optional[int] = None
+planner_llm_client: Optional[PlannerLLMClient] = None
 
 
 def initialize_graph_globals(client: LangfuseClient, gateway_endpoint: str, timeout: int):
@@ -28,10 +31,11 @@ def initialize_graph_globals(client: LangfuseClient, gateway_endpoint: str, time
         gateway_endpoint: Snowflake gateway endpoint URL
         timeout: Request timeout in seconds
     """
-    global langfuse_client, snowflake_gateway_endpoint, langgraph_timeout
+    global langfuse_client, snowflake_gateway_endpoint, langgraph_timeout, planner_llm_client
     langfuse_client = client
     snowflake_gateway_endpoint = gateway_endpoint
     langgraph_timeout = timeout
+    planner_llm_client = PlannerLLMClient(settings.planner_llm)
 
 
 async def load_state(state: SupervisorState) -> SupervisorState:
@@ -76,71 +80,127 @@ async def load_state(state: SupervisorState) -> SupervisorState:
     return state
 
 
-async def route_request(state: SupervisorState) -> SupervisorState:
-    """Route request to appropriate agent(s).
-    
-    Node: route_request
-    - Get routing prompt from Langfuse
-    - Call agent_router to determine which agents to invoke
-    - Store routing decision in state
-    
-    Args:
-        state: Current supervisor state
-        
-    Returns:
-        Updated state with routing decision
+async def plan_request(state: SupervisorState) -> SupervisorState:
+    """Plan request into numbered steps with assigned sub-agents.
+
+    Node: plan_request
+    - Create a plan from the query + context
+    - Store plan in state and short-term memory
     """
     session_id = state["session_id"]
     query = state["query"]
     context = state.get("context") or {}
-    
-    logger.info(f"Routing request for session {session_id}")
-    
+
+    logger.info(f"Planning request for session {session_id}")
+
     try:
-        # Routing policy strategy (selected via LANGGRAPH_ROUTING_MODE).
-        #
-        # This keeps the supervisor workflow stable while allowing multiple routing
-        # behaviors (optimized router vs. handoffs) to coexist and be tested separately.
-        routing_policy = get_routing_policy()
+        # Build planner prompt and call LLM
+        if not planner_llm_client:
+            raise LangGraphError("Planner LLM client not initialized.")
 
-        agent_preference = state.get("metadata", {}).get("agent_preference")
+        planner_prompt = plan_prompt(state)
+        llm_reply = await planner_llm_client.complete(prompt=planner_prompt)
+        parsed_plan = planner_llm_client.extract_json(llm_reply)
 
-        # Prompt rendering is passed into the policy as a callback so the policy can
-        # decide to SKIP prompt + routing calls for follow-ups (latency optimization).
-        async def render_routing_prompt() -> str:
-            return await langfuse_client.get_prompt_for_routing(query=query, context=context)
+        # Accept {"plan": {...}} or direct plan dict
+        plan = parsed_plan.get("plan") if isinstance(parsed_plan, dict) else None
+        if not plan and isinstance(parsed_plan, dict):
+            plan = parsed_plan
 
-        routing_decision = await routing_policy.decide(
+        if not isinstance(plan, dict) or not plan:
+            raise LangGraphError(f"Planner returned invalid plan: {llm_reply}")
+
+        # Store planner prompt/output for traceability
+        state.setdefault("metadata", {})["planner_prompt"] = planner_prompt
+        state.setdefault("metadata", {})["planner_output"] = llm_reply
+
+        state["plan"] = plan
+        state["plan_current_step"] = 1
+        state["replan_flag"] = False
+        state["last_reason"] = ""
+        state["current_step"] = "plan_request"
+
+        short_term_memory.store(
             session_id=session_id,
-            query=query,
-            context=context,
-            messages=state.get("messages", []) or [],
-            agent_preference=agent_preference,
-            render_routing_prompt=render_routing_prompt,
+            key="plan",
+            value=plan,
         )
-        
-        # Update state
+
+        return state
+    except Exception as e:
+        logger.error(f"Error in plan_request: {str(e)}")
+        state["status"] = "failed"
+        state["error"] = f"Planning failed: {str(e)}"
+        state["current_step"] = "plan_request_error"
+        return state
+
+
+async def execute_plan(state: SupervisorState) -> SupervisorState:
+    """Convert the plan into a routing decision for this request.
+
+    Node: execute_plan
+    - Extract agents from the plan
+    - Set routing_decision for downstream invocation
+    """
+    session_id = state["session_id"]
+    plan = state.get("plan") or {}
+    step_index = int(state.get("plan_current_step") or 1)
+    step_key = str(step_index)
+    plan_block = plan.get(step_key) if isinstance(plan, dict) else None
+
+    logger.info(f"Executing plan for session {session_id}")
+
+    try:
+        if not planner_llm_client:
+            raise LangGraphError("Executor LLM client not initialized.")
+
+        executor_prompt_text = executor_prompt(state)
+        executor_reply = await planner_llm_client.complete(prompt=executor_prompt_text)
+        executor_json = planner_llm_client.extract_json(executor_reply)
+
+        # Store executor prompt/output for traceability
+        state.setdefault("metadata", {})["executor_prompt"] = executor_prompt_text
+        state.setdefault("metadata", {})["executor_output"] = executor_reply
+
+        if not isinstance(plan_block, dict) or not plan_block.get("agent"):
+            raise LangGraphError("Planner produced no step with an agent.")
+
+        if executor_json.get("replan"):
+            attempts = state.get("replan_attempts", {}) or {}
+            attempts[step_index] = int(attempts.get(step_index, 0)) + 1
+            state["replan_attempts"] = attempts
+            state["replan_flag"] = True
+            state["last_reason"] = str(executor_json.get("reason") or "Executor requested replan.")
+            state["current_step"] = "execute_plan_replan"
+            return state
+
+        agent_name = str(executor_json.get("goto") or plan_block.get("agent"))
+        agent_query = str(executor_json.get("query") or plan_block.get("action") or state.get("query"))
+
+        routing_decision = {
+            "agents_to_call": [agent_name],
+            "routing_reason": f"Executor: {executor_json.get('reason', '')}".strip(),
+            "confidence": 0.7,
+        }
+
         state["routing_decision"] = routing_decision
-        state["current_step"] = "route_request"
-        
-        # Store routing decision in short-term memory
+        state["agent_query"] = agent_query
+        state["replan_flag"] = False
+        state["last_reason"] = str(executor_json.get("reason") or "")
+        state["current_step"] = "execute_plan"
+
         short_term_memory.store(
             session_id=session_id,
             key="routing_decision",
             value=routing_decision,
         )
-        
-        logger.info(
-            f"Routed to agents: {routing_decision.get('agents_to_call', [])} "
-            f"(mode={settings.langgraph.routing_mode})"
-        )
+
         return state
-        
     except Exception as e:
-        logger.error(f"Error in route_request: {str(e)}")
+        logger.error(f"Error in execute_plan: {str(e)}")
         state["status"] = "failed"
-        state["error"] = f"Routing failed: {str(e)}"
-        state["current_step"] = "route_request_error"
+        state["error"] = f"Plan execution failed: {str(e)}"
+        state["current_step"] = "execute_plan_error"
         return state
 
 
@@ -159,7 +219,7 @@ async def invoke_agents(state: SupervisorState) -> SupervisorState:
         Updated state with agent responses
     """
     session_id = state["session_id"]
-    query = state["query"]
+    query = state.get("agent_query") or state["query"]
     routing_decision = state.get("routing_decision")
     messages = state.get("messages", [])
     context = state.get("context") or {}
@@ -184,6 +244,8 @@ async def invoke_agents(state: SupervisorState) -> SupervisorState:
                     "session_id": session_id,
                     "status": state.get("status"),
                     "current_step": state.get("current_step"),
+                    "plan": state.get("plan"),
+                    "plan_current_step": state.get("plan_current_step"),
                 },
                 "short_term_memory": short_term_memory.get_all(session_id=session_id),
             },
@@ -268,6 +330,22 @@ async def combine_responses(state: SupervisorState) -> SupervisorState:
         state["error"] = f"Response combination failed: {str(e)}"
         state["current_step"] = "combine_responses_error"
         return state
+
+
+async def advance_plan(state: SupervisorState) -> SupervisorState:
+    """Advance planner step or mark for replan."""
+    plan = state.get("plan") or {}
+    step = int(state.get("plan_current_step") or 1)
+
+    # If executor requested a replan, keep step index and return.
+    if state.get("replan_flag"):
+        state["current_step"] = "advance_plan_replan"
+        return state
+
+    if isinstance(plan, dict) and str(step + 1) in plan:
+        state["plan_current_step"] = step + 1
+    state["current_step"] = "advance_plan"
+    return state
 
 
 async def update_memory(state: SupervisorState) -> SupervisorState:
@@ -470,16 +548,18 @@ def create_supervisor_graph() -> StateGraph:
     
     # Add nodes
     workflow.add_node("load_state", load_state)
-    workflow.add_node("route_request", route_request)
+    workflow.add_node("plan_request", plan_request)
+    workflow.add_node("execute_plan", execute_plan)
     workflow.add_node("invoke_agents", invoke_agents)
     workflow.add_node("combine_responses", combine_responses)
+    workflow.add_node("advance_plan", advance_plan)
     workflow.add_node("update_memory", update_memory)
     workflow.add_node("log_observability", log_observability)
     workflow.add_node("handle_error", handle_error)
     
     # Define edges
     workflow.add_edge(START, "load_state")
-    workflow.add_edge("load_state", "route_request")
+    workflow.add_edge("load_state", "plan_request")
     
     # Error handling: route to handle_error if status is "failed"
     def should_handle_error(state: SupervisorState) -> str:
@@ -488,14 +568,23 @@ def create_supervisor_graph() -> StateGraph:
             return "handle_error"
         return "continue"
     
-    # Add conditional edges for error handling after route_request
+    # Add conditional edges for error handling after plan_request
     workflow.add_conditional_edges(
-        "route_request",
+        "plan_request",
         should_handle_error,
         {
             "handle_error": "handle_error",
-            "continue": "invoke_agents"
-        }
+            "continue": "execute_plan",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "execute_plan",
+        should_handle_error,
+        {
+            "handle_error": "handle_error",
+            "continue": "invoke_agents",
+        },
     )
     
     # Add conditional edges for error handling after invoke_agents
@@ -514,8 +603,31 @@ def create_supervisor_graph() -> StateGraph:
         should_handle_error,
         {
             "handle_error": "handle_error",
-            "continue": "update_memory"
+            "continue": "advance_plan"
         }
+    )
+
+    def should_continue_plan(state: SupervisorState) -> str:
+        """Determine next step in planning flow."""
+        if state.get("status") == "failed":
+            return "handle_error"
+        if state.get("replan_flag"):
+            return "replan"
+        plan = state.get("plan") or {}
+        step = int(state.get("plan_current_step") or 1)
+        if isinstance(plan, dict) and str(step) in plan:
+            return "continue"
+        return "done"
+
+    workflow.add_conditional_edges(
+        "advance_plan",
+        should_continue_plan,
+        {
+            "handle_error": "handle_error",
+            "replan": "plan_request",
+            "continue": "execute_plan",
+            "done": "update_memory",
+        },
     )
     
     # Regular edges for successful flow

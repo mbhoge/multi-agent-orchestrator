@@ -1,9 +1,8 @@
 """Unit tests for LangGraph components."""
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import patch, AsyncMock
 from langgraph.supervisor import LangGraphSupervisor
-from langgraph.reasoning.router import AgentRouter
 from shared.models.request import AgentRequest
 
 
@@ -37,12 +36,6 @@ def mock_supervisor():
         return LangGraphSupervisor()
 
 
-@pytest.fixture
-def mock_router():
-    """Mock router."""
-    return AgentRouter()
-
-
 @pytest.mark.asyncio
 async def test_supervisor_process_request(mock_supervisor):
     """Test supervisor request processing with StateGraph."""
@@ -56,18 +49,4 @@ async def test_supervisor_process_request(mock_supervisor):
     assert "response" in response
     assert "selected_agent" in response
     assert response["response"] == "Test response"
-
-
-def test_router_route_request(mock_router):
-    """Test agent routing."""
-    routing = mock_router.route_request(
-        query="Query the database for sales data",
-        context=None
-    )
-    
-    assert "agents_to_call" in routing
-    assert "routing_reason" in routing
-    assert "confidence" in routing
-    assert isinstance(routing["agents_to_call"], list)
-    assert len(routing["agents_to_call"]) > 0
 

@@ -98,6 +98,14 @@ class SupervisorState(TypedDict):
     query: str
     session_id: str
     messages: List[Dict[str, Any]]  # Conversation history
+    plan: Optional[Dict[str, Dict[str, Any]]]
+    plan_current_step: Optional[int]
+    replan_flag: Optional[bool]
+    last_reason: Optional[str]
+    replan_attempts: Optional[Dict[int, int]]
+    enabled_agents: Optional[List[str]]
+    user_query: Optional[str]
+    agent_query: Optional[str]
     routing_decision: Optional[Dict[str, Any]]
     agent_responses: List[Dict[str, Any]]
     final_response: Optional[str]
@@ -114,19 +122,22 @@ class SupervisorState(TypedDict):
 
 The supervisor uses a StateGraph with the following nodes:
 1. **load_state** - Loads conversation history and initializes state
-2. **route_request** - Routes to appropriate agent(s)
-3. **invoke_agents** - Invokes Snowflake Cortex AI agents
-4. **combine_responses** - Combines multiple agent responses
-5. **update_memory** - Updates conversation history and patterns
-6. **log_observability** - Logs to Langfuse
-7. **handle_error** - Handles errors via conditional edges
+2. **plan_request** - Planner LLM generates a numbered plan
+3. **execute_plan** - Executor LLM selects next agent + query
+4. **invoke_agents** - Invokes Snowflake Cortex AI agents
+5. **combine_responses** - Combines multiple agent responses
+6. **advance_plan** - Advances plan step or triggers replan
+7. **update_memory** - Updates conversation history and patterns
+8. **log_observability** - Logs to Langfuse
+9. **handle_error** - Handles errors via conditional edges
 
 **State Components:**
 
 1. **SupervisorState TypedDict** (`langgraph/state/graph_state.py`):
    - Request information (query, session_id)
    - Conversation history (messages array)
-   - Routing decision (agents_to_call, routing_reason, confidence)
+  - Planner/executor plan (plan, plan_current_step, replan flags)
+  - Routing decision (agents_to_call, routing_reason, confidence)
    - Agent responses (list of responses from invoked agents)
    - Final response (combined response text)
    - Processing state (status, current_step)
@@ -1141,9 +1152,11 @@ async def process_request(self, request: AgentRequest, session_id: str):
     
     # StateGraph nodes handle:
     # - load_state: Retrieves history from short_term_memory
-    # - route_request: Routes to appropriate agent
+    # - plan_request: Planner LLM generates numbered plan
+    # - execute_plan: Executor LLM selects next agent + query
     # - invoke_agents: Calls Snowflake with enriched context
     # - combine_responses: Combines agent responses
+    # - advance_plan: Moves to next step or replans
     # - update_memory: Updates history and patterns
     # - log_observability: Logs to Langfuse
     

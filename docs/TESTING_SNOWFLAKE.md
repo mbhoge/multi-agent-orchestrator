@@ -302,5 +302,6 @@ After successfully testing individual components:
 1. Test the full integration with LangGraph
 2. Test the complete orchestration flow
 3. Deploy to AWS using Terraform
-4. Monitor with observability tools (Langfuse, TruLens)
+4. Monitor with observability tools (Langfuse, TruLens). See `docs/TRULENS_OBSERVABILITY.md`
+   for the refactored tracing + evaluation workflow.
 

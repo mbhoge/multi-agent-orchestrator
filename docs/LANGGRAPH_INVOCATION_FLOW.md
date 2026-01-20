@@ -62,9 +62,9 @@ The complete diagram includes:
                    │
                    ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 6. Agent Router                                                 │
-│    langgraph/reasoning/router.py                               │
-│    → route_request()                                            │
+│ 6. Planner + Executor (LLM)                                     │
+│    langgraph/supervisor/planning.py + llm_client.py             │
+│    → plan_request() → execute_plan()                            │
 └──────────────────┬──────────────────────────────────────────────┘
                    │
                    ▼
@@ -145,7 +145,7 @@ async def process_request(
     # Step 1: Invoke LangGraph via HTTP
     langgraph_response = await self._invoke_langgraph(request, session_id)
     
-    # Step 2: Extract routing decision
+    # Step 2: Extract planner/executor decision
     selected_agent = langgraph_response.get("selected_agent")
     
     # Step 3: Use AWS Agent Core if configured, otherwise use LangGraph response
@@ -292,50 +292,59 @@ The workflow consists of the following nodes executed in sequence with condition
    - Appends current user query to history
    - Initializes state fields (status, start_time, etc.)
 
-2. **`route_request`** - Gets routing prompt from Langfuse and calls agent_router to determine which agents to invoke
-   - Fetches `supervisor_routing` prompt from Langfuse
-   - Calls `agent_router.route_request()` to determine which Snowflake agent(s) to call
-   - Stores routing decision in state (agents_to_call, routing_reason, confidence)
+2. **`plan_request`** - LLM planner generates a numbered plan (Bedrock SLM)
+   - Builds planner prompt and calls the planner LLM
+   - Parses JSON plan and stores it in state and short-term memory
+   - **Conditional edge:** Routes to `handle_error` if status="failed", otherwise continues to `execute_plan`
+
+3. **`execute_plan`** - LLM executor selects next agent and query (Bedrock SLM)
+   - Builds executor prompt and calls the executor LLM
+   - Parses JSON decision (`replan`, `goto`, `reason`, `query`)
+   - Produces `routing_decision` in standard shape (agents_to_call, routing_reason, confidence)
    - **Conditional edge:** Routes to `handle_error` if status="failed", otherwise continues to `invoke_agents`
 
-3. **`invoke_agents`** - Invokes one or more Snowflake Cortex AI agents based on routing decision
+4. **`invoke_agents`** - Invokes one or more Snowflake Cortex AI agents based on routing decision
    - Iterates through `agents_to_call` from routing decision
    - Calls `_invoke_snowflake_agent()` for each agent (via HTTP to Snowflake gateway)
    - Collects all agent responses in `agent_responses` array
    - **Conditional edge:** Routes to `handle_error` if status="failed", otherwise continues to `combine_responses`
 
-4. **`combine_responses`** - Combines responses from multiple agents if needed
+5. **`combine_responses`** - Combines responses from multiple agents if needed
    - If single agent: uses response directly
    - If multiple agents: combines with agent labels and merges sources
    - Sets `final_response` in state
    - **Conditional edge:** Routes to `handle_error` if status="failed", otherwise continues to `update_memory`
 
-5. **`update_memory`** - Updates short-term and long-term memory with conversation history
+6. **`advance_plan`** - Advances plan step or triggers replan
+   - Increments `plan_current_step` if additional steps exist
+   - Routes to `plan_request` when `replan_flag` is true
+
+7. **`update_memory`** - Updates short-term and long-term memory with conversation history
    - Appends assistant response to message history
    - Stores updated history in `short_term_memory` (bounded window, max 30 messages)
    - Optionally stores patterns in `long_term_memory` if confidence is high
    - **Regular edge:** Always continues to `log_observability`
 
-6. **`log_observability`** - Logs to Langfuse for observability
+8. **`log_observability`** - Logs to Langfuse for observability
    - Logs trace to Langfuse with full state information
    - Calculates execution time
    - Sets final status to "completed"
    - **Regular edge:** Always ends workflow (END)
 
-7. **`handle_error`** - Handles errors if any node sets status to "failed"
+9. **`handle_error`** - Handles errors if any node sets status to "failed"
    - Logs error details
    - Sets status to "failed" and current_step to "error_handled"
    - **Regular edge:** Always ends workflow (END)
 
 **Graph Structure:**
-- **START** → `load_state` → `route_request` → (conditional) → `invoke_agents` → (conditional) → `combine_responses` → (conditional) → `update_memory` → `log_observability` → **END**
+- **START** → `load_state` → `plan_request` → (conditional) → `execute_plan` → (conditional) → `invoke_agents` → (conditional) → `combine_responses` → (conditional) → `advance_plan` → (conditional) → `update_memory` → `log_observability` → **END**
 - **Error path:** Any node can route to `handle_error` → **END** via conditional edges
 - **Conditional edges:** Check `state["status"] == "failed"` to route to error handler
 
 **Key Operations:**
 1. **StateGraph Management:** LangGraph handles state automatically through the graph (no manual state_manager calls)
-2. **Prompt Management:** Gets routing prompts from Langfuse (in `route_request` node)
-3. **Agent Routing:** Uses `agent_router` to decide which agent(s) to use (in `route_request` node)
+2. **Planner/Executor Prompts:** LLM prompts drive plan + agent selection (plan_request/execute_plan)
+3. **Agent Selection:** Executor produces routing decision shape
 4. **Memory Management:** Stores in short-term and long-term memory (in `update_memory` node)
 5. **Agent Invocation:** Calls Snowflake Cortex AI agents via HTTP (in `invoke_agents` node)
 6. **Observability:** Logs to Langfuse (in `log_observability` node)
@@ -343,38 +352,20 @@ The workflow consists of the following nodes executed in sequence with condition
 
 ---
 
-### Step 6: Agent Router Decision
+### Step 6: Planner + Executor Decision
 
-**File:** `langgraph/reasoning/router.py`
+**Files:** `langgraph/supervisor/planning.py`, `langgraph/supervisor/llm_client.py`
 
-```python
-def route_request(
-    self,
-    query: str,
-    context: Optional[Dict[str, Any]] = None,
-    agent_preference: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Route request to appropriate agent based on query analysis.
-    
-    Returns:
-        {
-            "agents_to_call": List[str],  # Snowflake agent object name(s)
-            "routing_reason": str,
-            "confidence": float
-        }
-    """
-    # Analyze query to determine which DOMAIN agent object(s) to call
-    # - market_segment: segmentation / retention / cohort analytics
-    # - drug_discovery: compounds / targets / assays / clinical queries
-    # Returns routing decision (agent object names)
+The planner builds a numbered plan, and the executor decides the next agent + query.
+The executor output is converted to the standard routing decision shape:
+
+```json
+{
+  "agents_to_call": ["AGENT_NAME"],
+  "routing_reason": "Executor: <reason>",
+  "confidence": 0.7
+}
 ```
-
-**Routing Logic:**
-- Analyzes query content
-- Considers context (data_type, etc.)
-- Respects agent_preference if provided
-- Returns selected agent with confidence score
 
 ---
 
@@ -656,7 +647,7 @@ async def handle_error(state: SupervisorState) -> SupervisorState:
 3. **HTTP call** made to LangGraph supervisor endpoint (`/supervisor/process`)
 4. **LangGraph supervisor** processes request through **StateGraph workflow**:
    - **load_state** node: Loads conversation history
-   - **route_request** node: Gets prompt and routes to appropriate agent(s)
+   - **plan_request/execute_plan** nodes: Planner/executor select next agent(s)
    - **invoke_agents** node: Invokes Snowflake Cortex AI agent(s)
    - **combine_responses** node: Combines multiple agent responses if needed
    - **update_memory** node: Updates conversation history and patterns

@@ -65,14 +65,14 @@ The Multi-Agent Orchestrator follows a **three-tier microservices architecture**
 │  │  LangGraphSupervisor (StateGraph)                       │  │
 │  │  - StateGraph Workflow (automatic state management)     │  │
 │  │  - Memory Management (Short-term & Long-term)           │  │
-│  │  - Request Routing (AgentRouter)                        │  │
+│  │  - Planning + Execution (Bedrock SLM)                   │  │
 │  │  - Langfuse Observability                                │  │
 │  └───────────────────┬────────────────────────────────────┘  │
 │                      │                                          │
 │  ┌───────────────────▼────────────────────────────────────┐  │
-│  │  AgentRouter                                           │  │
-│  │  - Analyzes query intent                                │  │
-│  │  - Routes to appropriate agent                          │  │
+│  │  Planner/Executor (Bedrock SLM)                        │  │
+│  │  - Builds numbered plan                                 │  │
+│  │  - Selects next agent + query                            │  │
 │  │  - Returns routing decision with confidence             │  │
 │  └───────────────────┬────────────────────────────────────┘  │
 └───────────────────────┼───────────────────────────────────────┘
@@ -233,7 +233,7 @@ Teams @mention in Channel
     ├─→ StateGraph.ainvoke() - Invokes workflow
     │   │
     │   ├─→ load_state node: Load conversation history
-    │   ├─→ route_request node: Get prompt from Langfuse & route
+    │   ├─→ plan_request/execute_plan: Build plan + select agent
     │   ├─→ invoke_agents node: Invoke Snowflake agent(s)
     │   ├─→ combine_responses node: Combine multiple responses
     │   ├─→ update_memory node: Update history and patterns
@@ -265,7 +265,7 @@ User receives AgentResponse
 StateGraph (LangGraph - automatic state management)
     │
     ├─→ load_state node - Load conversation history from memory
-    ├─→ route_request node - Update state with routing decision
+    ├─→ execute_plan node - Update state with routing decision
     ├─→ invoke_agents node - Update state with agent responses
     ├─→ combine_responses node - Update state with final response
     ├─→ update_memory node - Update conversation history
@@ -335,7 +335,7 @@ Typical setup (domain agents):
 
 ### Routing Logic
 
-The `AgentRouter` uses **domain keyword scoring** (and optional `context.domain`) to determine which Snowflake agent object(s) to call.
+The planner/executor uses a **Bedrock SLM** to generate a plan and choose the next agent to run.
 Domain agents are defined in `config/agents.yaml`.
 
 ### Agent Coordination Example
@@ -390,7 +390,7 @@ Domain agents are defined in `config/agents.yaml`.
 │ - Updates state: status=PROCESSING                           │
 │ - **Fetches supervisor_routing prompt from Langfuse**       │
 │ - **Renders routing prompt: {query}, {context}**             │
-│ - AgentRouter selects agent object(s)                        │
+│ - Planner/Executor selects agent object(s)                   │
 │ - Routing decision: {                                        │
 │     "agents_to_call": ["MARKET_SEGMENT_AGENT"],             │
 │     "routing_reason": "Domain match to 'market_segment'...", │

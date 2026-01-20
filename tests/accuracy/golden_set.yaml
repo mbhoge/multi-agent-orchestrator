@@ -1,0 +1,53 @@
+dataset_id: "v1"
+description: "Minimal golden set for accuracy verification across configured domains."
+cases:
+  - id: "ms_001"
+    domain: "market_segment"
+    query: "Show churn rate by cohort for Q1 and explain any notable segments."
+    expected_agent: "MARKET_SEGMENT_AGENT"
+    expected_facts:
+      - "churn"
+      - "cohort"
+      - "segment"
+    min_scores:
+      relevance: 0.80
+      completeness: 0.80
+    require_sources: false
+
+  - id: "ms_002"
+    domain: "market_segment"
+    query: "Analyze customer retention trends and highlight at-risk cohorts."
+    expected_agent: "MARKET_SEGMENT_AGENT"
+    expected_facts:
+      - "retention"
+      - "cohort"
+      - "at-risk"
+    min_scores:
+      relevance: 0.80
+      completeness: 0.75
+    require_sources: false
+
+  - id: "dd_001"
+    domain: "drug_discovery"
+    query: "Summarize Drug X mechanism of action and key trials."
+    expected_agent: "DRUG_DISCOVERY_AGENT"
+    expected_facts:
+      - "mechanism"
+      - "trial"
+    min_scores:
+      relevance: 0.75
+      completeness: 0.80
+    require_sources: true
+
+  - id: "dd_002"
+    domain: "drug_discovery"
+    query: "Provide targets and assay results for a compound screening study."
+    expected_agent: "DRUG_DISCOVERY_AGENT"
+    expected_facts:
+      - "target"
+      - "assay"
+      - "compound"
+    min_scores:
+      relevance: 0.75
+      completeness: 0.75
+    require_sources: true

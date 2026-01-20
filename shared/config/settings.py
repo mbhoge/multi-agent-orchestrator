@@ -32,35 +32,6 @@ class LangGraphSettings(BaseSettings):
     langgraph_timeout: int = Field(default=300, description="Request timeout in seconds")
     enable_memory: bool = Field(default=True, description="Enable memory management")
 
-    # Routing strategy selection
-    #
-    # This codebase supports multiple routing *policies* (strategies) without duplicating
-    # the whole supervisor graph. The selected policy changes ONLY the routing behavior
-    # (how we decide which Snowflake agent(s) to call), while keeping the workflow nodes,
-    # memory, observability, and downstream invocation logic identical.
-    #
-    # Supported values:
-    # - "optimized_router": Router-style routing with follow-up reuse + cache to reduce latency.
-    # - "handoffs": Handoffs-style behavior that keeps an "active agent" for follow-ups.
-    routing_mode: str = Field(
-        default="optimized_router",
-        description="Routing strategy to use: optimized_router | handoffs",
-    )
-
-    # Optimizations for low-latency chat (e.g., Teams)
-    routing_followup_reuse_enabled: bool = Field(
-        default=True,
-        description="If true, reuse prior routing decision for likely follow-up queries to reduce latency.",
-    )
-    routing_cache_ttl_seconds: int = Field(
-        default=300,
-        description="TTL for per-session routing cache entries (seconds). Used by optimized_router policy.",
-    )
-    handoffs_active_agent_ttl_seconds: int = Field(
-        default=3600,
-        description="TTL for the 'active_agent' used by the handoffs policy (seconds).",
-    )
-    
     class Config:
         env_prefix = "LANGGRAPH_"
         case_sensitive = False
@@ -79,6 +50,22 @@ class LangfuseSettings(BaseSettings):
     
     class Config:
         env_prefix = "LANGFUSE_"
+        case_sensitive = False
+
+
+class PlannerLLMSettings(BaseSettings):
+    """Planner/executor LLM settings (AWS Bedrock)."""
+
+    model_id: str = Field(
+        default="anthropic.claude-3-haiku-20240307-v1:0",
+        description="Bedrock model ID for planner/executor",
+    )
+    region: str = Field(default="us-east-1", description="AWS region for Bedrock runtime")
+    temperature: float = Field(default=0.1, description="LLM sampling temperature")
+    max_tokens: int = Field(default=1024, description="Max tokens for planner/executor")
+
+    class Config:
+        env_prefix = "PLANNER_LLM_"
         case_sensitive = False
 
 
@@ -188,6 +175,7 @@ class AppSettings(BaseSettings):
     aws: AWSSettings = Field(default_factory=AWSSettings)
     langgraph: LangGraphSettings = Field(default_factory=LangGraphSettings)
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
+    planner_llm: PlannerLLMSettings = Field(default_factory=PlannerLLMSettings)
     snowflake: SnowflakeSettings = Field(default_factory=SnowflakeSettings)
     trulens: TruLensSettings = Field(default_factory=TruLensSettings)
     teams: TeamsSettings = Field(default_factory=TeamsSettings)
