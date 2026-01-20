@@ -101,7 +101,9 @@ class TruLensClient:
         if not self.enabled or OpenAIProvider is None or Feedback is None or Selector is None or np is None:
             return []
         try:
-            provider = OpenAIProvider(model_engine=os.getenv("TRULENS_EVAL_MODEL", "gpt-4o"))
+            provider = OpenAIProvider(
+                model_engine=os.getenv("TRULENS_EVAL_MODEL", "llama3.2-3b")
+            )
 
             f_groundedness = (
                 Feedback(provider.groundedness_measure_with_cot_reasons, name="Groundedness")
@@ -310,7 +312,9 @@ class TruLensClient:
             if OpenAIProvider is None:
                 return {"evaluated": False, "error": "TruLens provider not available"}
 
-            provider = OpenAIProvider(model_engine=os.getenv("TRULENS_EVAL_MODEL", "gpt-4o"))
+            provider = OpenAIProvider(
+                model_engine=os.getenv("TRULENS_EVAL_MODEL", "llama3.2-3b")
+            )
             retrieved_contexts = (context or {}).get("retrieved_contexts") or []
 
             answer_relevance = provider.relevance_with_cot_reasons(query, response)
