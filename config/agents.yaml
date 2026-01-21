@@ -2,7 +2,7 @@
 #
 # This file defines Snowflake Cortex Agent OBJECTS by domain.
 # LangGraph Supervisor uses this registry to select which agent object(s) to call.
-# Snowflake agent orchestration will decide which tools to invoke (analyst/search) based on messages + tool_choice hints.
+# Snowflake agent orchestration decides which tools to invoke (analyst/search) based on messages + tool_choice hints.
 #
 # Each entry MUST set:
 # - domain: logical business domain name
@@ -10,7 +10,6 @@
 # - enabled: whether it is available for routing
 #
 # Optional:
-# - keywords: list of keywords to route queries to this domain agent
 # - description: human readable description
 
 agents:
@@ -18,26 +17,10 @@ agents:
     agent_name: MARKET_SEGMENT_AGENT
     description: "Domain agent for market segmentation analytics and insights"
     enabled: true
-    keywords:
-      - market
-      - segment
-      - segmentation
-      - churn
-      - retention
-      - customer
-      - cohort
 
   - domain: drug_discovery
     agent_name: DRUG_DISCOVERY_AGENT
     description: "Domain agent for drug discovery and life sciences queries"
     enabled: true
-    keywords:
-      - drug
-      - discovery
-      - compound
-      - target
-      - assay
-      - clinical
-      - bioactivity
 
 
