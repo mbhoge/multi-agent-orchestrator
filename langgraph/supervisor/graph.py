@@ -82,7 +82,7 @@ async def load_state(state: SupervisorState) -> SupervisorState:
 
 async def plan_request(state: SupervisorState) -> SupervisorState:
     """Plan request into numbered steps with assigned sub-agents.
-
+    
     Node: plan_request
     - Create a plan from the query + context
     - Store plan in state and short-term memory
@@ -90,9 +90,9 @@ async def plan_request(state: SupervisorState) -> SupervisorState:
     session_id = state["session_id"]
     query = state["query"]
     context = state.get("context") or {}
-
+    
     logger.info(f"Planning request for session {session_id}")
-
+    
     try:
         # Build planner prompt and call LLM
         if not planner_llm_client:
@@ -188,13 +188,13 @@ async def execute_plan(state: SupervisorState) -> SupervisorState:
         state["replan_flag"] = False
         state["last_reason"] = str(executor_json.get("reason") or "")
         state["current_step"] = "execute_plan"
-
+        
         short_term_memory.store(
             session_id=session_id,
             key="routing_decision",
             value=routing_decision,
         )
-
+        
         return state
     except Exception as e:
         logger.error(f"Error in execute_plan: {str(e)}")
@@ -345,7 +345,7 @@ async def advance_plan(state: SupervisorState) -> SupervisorState:
     if isinstance(plan, dict) and str(step + 1) in plan:
         state["plan_current_step"] = step + 1
     state["current_step"] = "advance_plan"
-    return state
+        return state
 
 
 async def update_memory(state: SupervisorState) -> SupervisorState:

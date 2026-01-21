@@ -16,7 +16,7 @@ prompts:
     variables:
       - query
       - context
-
+  
   - name: supervisor_planner
     description: "Prompt for LangGraph supervisor planner to create a step-by-step plan"
     default_template: "You are the Planner. Create numbered steps with an agent and action for each step. User query: {query}\n\nAvailable agents:\n{agent_list}\n\nGuidelines:\n{guidelines}\n\nReturn ONLY valid JSON."

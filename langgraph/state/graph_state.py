@@ -39,7 +39,7 @@ class SupervisorState(TypedDict):
     
     # Context for downstream agents
     context: Optional[Dict[str, Any]]  # Enriched context with history, state snapshots
-
+    
     # Planner state
     plan: Optional[Dict[str, Dict[str, Any]]]  # Planner output keyed by step number
     plan_current_step: Optional[int]  # 1-based index for current plan step

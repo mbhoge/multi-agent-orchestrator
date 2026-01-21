@@ -368,7 +368,7 @@ class TruLensClient:
                 return
             
             logger.debug(f"Logging agent execution to TruLens: session={session_id}, agent={agent_type}")
-
+            
             # Trace internal steps if provided
             if selected_tools:
                 self.trace_tool_selection(query=query, selected_tools=selected_tools)
@@ -414,7 +414,7 @@ class TruLensClient:
                     context=eval_context,
                 )
                 result["trulens_eval"] = eval_result
-
+            
             logger.debug(f"Logged to TruLens: session={session_id}")
             
         except Exception as e:

@@ -137,7 +137,7 @@ The supervisor uses a StateGraph with the following nodes:
    - Request information (query, session_id)
    - Conversation history (messages array)
   - Planner/executor plan (plan, plan_current_step, replan flags)
-  - Routing decision (agents_to_call, routing_reason, confidence)
+   - Routing decision (agents_to_call, routing_reason, confidence)
    - Agent responses (list of responses from invoked agents)
    - Final response (combined response text)
    - Processing state (status, current_step)
