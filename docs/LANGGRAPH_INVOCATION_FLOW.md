@@ -27,15 +27,15 @@ The complete diagram includes:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ 1. Client Request                                               │
-│    POST /api/v1/query                                           │
+│    POST /invocations                                            │
 │    { "query": "What are sales?", "session_id": "session-123" }   │
 └──────────────────┬──────────────────────────────────────────────┘
                    │
                    ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 2. Lambda Handler                                                │
-│    AWS Lambda function (via API Gateway)                        │
-│    → Extracts AgentRequest from event                            │
+│ 2. AgentCore HTTP Server                                        │
+│    aws_agent_core/api/main.py                                    │
+│    → Parses JSON payload                                         │
 │    → Calls orchestrator.process_request()                        │
 └──────────────────┬──────────────────────────────────────────────┘
                    │
@@ -48,9 +48,8 @@ The complete diagram includes:
                    │
                    ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 4. Invoke LangGraph (HTTP Call)                                │
+│ 4. Invoke LangGraph (in-process)                                │
 │    _invoke_langgraph()                                          │
-│    POST http://langgraph:8001/supervisor/process                │
 └──────────────────┬──────────────────────────────────────────────┘
                    │
                    ▼
@@ -85,45 +84,26 @@ The complete diagram includes:
 
 ## Step-by-Step Code Flow
 
-### Step 1: Request Arrives at Lambda Handler
+### Step 1: Request Arrives at AgentCore HTTP Server
 
-**File:** AWS Lambda function handler (configured via API Gateway)
+**File:** `aws_agent_core/api/main.py`
 
 ```python
-# Lambda handler receives API Gateway event
-def lambda_handler(event, context):
-    # Extract request from API Gateway event
-    request_body = json.loads(event.get("body", "{}"))
-    
-    # Create AgentRequest from event
-    request = AgentRequest(
-        query=request_body.get("query", ""),
-        session_id=request_body.get("session_id"),
-        context=request_body.get("context"),
-        agent_preference=request_body.get("agent_preference")
-    )
-    
-    # Create orchestrator instance
-    orchestrator = MultiAgentOrchestrator()
-    
-    # Process request
-    response = await orchestrator.process_request(
-        request=request,
-        agent_id=request_body.get("agent_id"),
-        agent_alias_id=request_body.get("agent_alias_id")
-    )
-    
-    return {
-        "statusCode": 200,
-        "body": json.dumps(response.dict())
-    }
+# AgentCore HTTP server receives JSON payload at /invocations
+payload = json.loads(raw_body.decode("utf-8") or "{}")
+request = AgentRequest(
+    query=payload.get("query") or payload.get("prompt"),
+    session_id=payload.get("session_id"),
+    context=payload.get("context"),
+    agent_preference=payload.get("agent_preference"),
+    metadata=payload.get("metadata", {}),
+)
+response = asyncio.run(orchestrator.process_request(request))
 ```
 
 **What happens:**
-- Lambda handler receives POST request from API Gateway at `/api/v1/query`
-- Request body is extracted from API Gateway event
-- Request body is parsed into `AgentRequest` object
-- Creates `MultiAgentOrchestrator` instance
+- HTTP server receives POST request at `/invocations`
+- JSON body is parsed into `AgentRequest`
 - Calls `orchestrator.process_request()`
 
 ---
@@ -167,9 +147,9 @@ async def process_request(
 
 ---
 
-### Step 3: HTTP Call to LangGraph
+### Step 3: In-Process Call to LangGraph
 
-**File:** `aws_agent_core/orchestrator.py` (lines 123-162)
+**File:** `aws_agent_core/orchestrator.py`
 
 ```python
 async def _invoke_langgraph(
@@ -177,26 +157,12 @@ async def _invoke_langgraph(
     request: AgentRequest,
     session_id: str
 ) -> Dict[str, Any]:
-    """Invoke LangGraph supervisor via HTTP."""
-    async with httpx.AsyncClient(timeout=self.langgraph_timeout) as client:
-        response = await client.post(
-            f"{self.langgraph_endpoint}/supervisor/process",
-            json={
-                "query": request.query,
-                "session_id": session_id,
-                "context": request.context,
-                "agent_preference": request.agent_preference,
-            }
-        )
-        response.raise_for_status()
-        return response.json()
+    """Invoke LangGraph supervisor in-process."""
+    return await self.supervisor.process_request(request=request, session_id=session_id)
 ```
 
 **Configuration:**
-- **Endpoint:** `settings.langgraph.langgraph_endpoint` (default: `http://langgraph:8001`)
-- **Path:** `/supervisor/process`
-- **Method:** POST
-- **Timeout:** `settings.langgraph.langgraph_timeout` (default: 300 seconds)
+- No external endpoint required (in-process invocation)
 
 **Request Payload:**
 ```json
@@ -216,33 +182,21 @@ async def _invoke_langgraph(
 
 **File:** `langgraph/supervisor.py` (lines 36-86)
 
-The LangGraph supervisor is invoked via HTTP POST request. The supervisor receives the request and processes it through the StateGraph workflow:
+The LangGraph supervisor is invoked in-process. The supervisor receives the request and processes it through the StateGraph workflow:
 
 ```python
-# In orchestrator.py - HTTP call to LangGraph
+# In orchestrator.py - in-process call to LangGraph
 async def _invoke_langgraph(
     self,
     request: AgentRequest,
     session_id: str
 ) -> Dict[str, Any]:
-    """Invoke LangGraph supervisor via HTTP."""
-    async with httpx.AsyncClient(timeout=self.langgraph_timeout) as client:
-        response = await client.post(
-            f"{self.langgraph_endpoint}/supervisor/process",
-            json={
-                "query": request.query,
-                "session_id": session_id,
-                "context": request.context,
-                "agent_preference": request.agent_preference,
-            }
-        )
-        response.raise_for_status()
-        return response.json()
+    """Invoke LangGraph supervisor in-process."""
+    return await self.supervisor.process_request(request=request, session_id=session_id)
 ```
 
 **What happens:**
-- HTTP POST request is made to LangGraph endpoint (typically via Lambda/API Gateway or direct HTTP)
-- LangGraph supervisor's `process_request()` method is called
+- `LangGraphSupervisor.process_request()` is called directly
 - Converts request to initial state and invokes StateGraph workflow
 
 ---
@@ -419,54 +373,15 @@ async def _invoke_snowflake_agent(
 
 ---
 
-## Two Invocation Paths
-
-### Path 1: Direct LangGraph Invocation (Current Implementation)
+## Invocation Path (Current Implementation)
 
 ```
-AWS Agent Core → HTTP → LangGraph → Snowflake Agent
+AWS Agent Core → in-process LangGraph → Snowflake Agent
 ```
 
-**When used:**
-- No `agent_id` and `agent_alias_id` provided in request
-- Direct orchestration without AWS Bedrock Agent Core
-
-**Code Path:**
-```python
-# orchestrator.py line 72
-langgraph_response = await self._invoke_langgraph(request, session_id)
-
-# orchestrator.py line 92-94
-final_response = langgraph_response.get("response", "")
-```
-
----
-
-### Path 2: AWS Agent Core Runtime SDK (Future/Alternative)
-
-```
-AWS Agent Core → AWS Bedrock Agent Core Runtime SDK → LangGraph → Snowflake Agent
-```
-
-**When used:**
-- `agent_id` and `agent_alias_id` provided in request
-- Using AWS Bedrock Agent Core managed infrastructure
-
-**Code Path:**
-```python
-# orchestrator.py line 79-88
-if agent_id and agent_alias_id:
-    agent_result = self.runtime_client.invoke_agent(
-        agent_id=agent_id,
-        agent_alias_id=agent_alias_id,
-        session_id=session_id,
-        input_text=request.query,
-        enable_trace=True
-    )
-    final_response = agent_result.get("completion", "")
-```
-
-**Note:** In this path, AWS Agent Core Runtime SDK would internally route to LangGraph (if configured in the Bedrock agent).
+**Behavior:**
+- `/invocations` triggers the LangGraph supervisor in-process (no HTTP hop to LangGraph)
+- The supervisor invokes Snowflake agents over HTTP
 
 ---
 
@@ -474,13 +389,7 @@ if agent_id and agent_alias_id:
 
 ### Environment Variables
 
-**AWS Agent Core Orchestrator:**
-```bash
-LANGGRAPH_ENDPOINT=http://langgraph:8001
-LANGGRAPH_TIMEOUT=300
-```
-
-**LangGraph Supervisor:**
+**LangGraph Supervisor (in-process):**
 ```bash
 LANGFUSE_HOST=http://langfuse:3000
 SNOWFLAKE_CORTEX_AGENT_GATEWAY_ENDPOINT=http://snowflake-cortex:8002
@@ -489,8 +398,8 @@ SNOWFLAKE_CORTEX_AGENT_GATEWAY_ENDPOINT=http://snowflake-cortex:8002
 ### Docker Compose Network
 
 All services communicate via Docker network:
-- `aws-agent-core:8000` → `langgraph:8001`
-- `langgraph:8001` → `snowflake-cortex:8002`
+- `aws-agent-core:8080` → in-process LangGraph supervisor
+- `aws-agent-core:8080` → `snowflake-cortex:8002`
 
 ---
 
@@ -500,22 +409,13 @@ All services communicate via Docker network:
 
 ```json
 // 1. Client → AWS Agent Core
-POST /api/v1/query
+POST /invocations
 {
   "query": "What are sales?",
   "session_id": "session-123"
 }
 
-// 2. AWS Agent Core → LangGraph
-POST http://langgraph:8001/supervisor/process
-{
-  "query": "What are sales?",
-  "session_id": "session-123",
-  "context": {"domain": "market_segment"},
-  "agent_preference": null
-}
-
-// 3. LangGraph → Snowflake Agent
+// 2. LangGraph (in-process) → Snowflake Agent
 POST http://snowflake-cortex:8002/agents/invoke
 {
   "agent_name": "YOUR_ANALYST_AGENT_NAME",
@@ -534,7 +434,7 @@ POST http://snowflake-cortex:8002/agents/invoke
   "sources": [...]
 }
 
-// 2. LangGraph → AWS Agent Core
+// 2. LangGraph (in-process) → AWS Agent Core
 {
   "response": "Sales are $1M",
   "selected_agent": "MARKET_SEGMENT_AGENT",
@@ -554,7 +454,6 @@ POST http://snowflake-cortex:8002/agents/invoke
   "sources": [...],
   "execution_time": 1.5,
   "metadata": {
-    "trace_id": "...",
     "routing_reason": "Domain match to 'market_segment'"
   },
   "timestamp": "2024-01-15T10:30:00.000Z"
@@ -568,13 +467,7 @@ POST http://snowflake-cortex:8002/agents/invoke
 ### 1. HTTP Client (httpx)
 
 **Used in:**
-- `aws_agent_core/orchestrator.py` → Calls LangGraph supervisor
 - `langgraph/supervisor/graph.py` → Calls Snowflake agents (in `_invoke_snowflake_agent` function)
-
-**Why httpx:**
-- Async/await support
-- Better timeout handling
-- Modern Python HTTP client
 
 ### 2. State Management
 
@@ -602,21 +495,10 @@ POST http://snowflake-cortex:8002/agents/invoke
 
 **Used in:**
 - `langgraph/observability/langfuse_client.py` → Langfuse logging
-- `aws_agent_core/observability/tracing.py` → AWS tracing
-- `aws_agent_core/observability/metrics.py` → Metrics collection
 
 ---
 
 ## Error Handling
-
-### HTTP Errors
-
-```python
-# orchestrator.py
-except httpx.HTTPError as e:
-    logger.error(f"HTTP error invoking LangGraph: {str(e)}")
-    raise LangGraphError(f"Failed to invoke LangGraph: {str(e)}") from e
-```
 
 ### General Errors
 
@@ -642,10 +524,9 @@ async def handle_error(state: SupervisorState) -> SupervisorState:
 
 ## Summary
 
-1. **Request arrives** at AWS Agent Core Lambda handler via API Gateway
-2. **Orchestrator** receives request and prepares to invoke LangGraph
-3. **HTTP call** made to LangGraph supervisor endpoint (`/supervisor/process`)
-4. **LangGraph supervisor** processes request through **StateGraph workflow**:
+1. **Request arrives** at AWS Agent Core `/invocations` endpoint
+2. **Orchestrator** receives request and invokes LangGraph in-process
+3. **LangGraph supervisor** processes request through **StateGraph workflow**:
    - **load_state** node: Loads conversation history
    - **plan_request/execute_plan** nodes: Planner/executor select next agent(s)
    - **invoke_agents** node: Invokes Snowflake Cortex AI agent(s)
@@ -660,7 +541,7 @@ async def handle_error(state: SupervisorState) -> SupervisorState:
 - State is automatically managed by LangGraph (no manual state_manager calls)
 - Workflow is defined as a graph with nodes and edges, making it easy to visualize and debug
 - Error handling is built-in via conditional edges that route to `handle_error` node
-- LangGraph is triggered via **HTTP POST request** from the AWS Agent Core orchestrator
+- LangGraph is triggered **in-process** by the AWS Agent Core orchestrator
 
 
 

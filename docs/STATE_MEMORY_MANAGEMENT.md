@@ -1,5 +1,8 @@
 # State and Memory Management Across Multi-Agent Framework
 
+> **Note:** The legacy API Gateway + Lambda flow was removed. The current runtime uses the
+> AgentCore HTTP server (`/invocations`, `/ping`) and invokes the LangGraph supervisor in-process.
+
 ## Executive Summary
 
 This document provides a comprehensive analysis of state and memory management across three frameworks in the multi-agent orchestrator:
@@ -49,41 +52,16 @@ This document provides a comprehensive analysis of state and memory management a
 
 ## Current Implementation Analysis
 
-### AWS Agent Core SDK State Handling
+### AWS Agent Core Session Handling (Current)
 
-#### Session Management
-
-AWS Agent Core SDK uses `sessionId` parameter in the `invoke_agent()` method to maintain conversation state:
-
-```python
-# From aws_agent_core/runtime/sdk_client.py
-def invoke_agent(
-    self,
-    agent_id: str,
-    agent_alias_id: str,
-    session_id: str,  # Key for state management
-    input_text: str,
-    enable_trace: bool = True
-) -> Dict[str, Any]:
-```
-
-**Key Characteristics:**
-- Each `sessionId` creates an isolated session in a dedicated microVM
-- Sessions persist for up to 8 hours of total runtime
-- AWS Agent Core maintains internal state for each session
-- State includes conversation history, agent context, and execution state
-
-#### AgentCore Memory Integration
-
-AWS provides **AgentCore Memory** - a fully managed, serverless primitive for state persistence:
-
-- **Short-term memory**: Conversation state within a session
-- **Long-term memory**: Cross-session knowledge and context
-- **Integration with LangGraph**: Can be used as a checkpoint backend via `langgraph_checkpoint_aws`
+The local AgentCore HTTP server forwards `session_id` into the LangGraph supervisor
+for state correlation. Session handling is managed by the LangGraph StateGraph and
+its memory components.
 
 **Current Implementation:**
-- Currently uses `sessionId` for session correlation
-- Does not yet integrate AgentCore Memory (recommended for production)
+- `session_id` is passed through `aws_agent_core/api/main.py` and `aws_agent_core/orchestrator.py`
+- LangGraph manages in-memory state for the session
+- AgentCore Memory is not yet integrated
 
 ### LangGraph State Management
 

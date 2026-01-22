@@ -29,9 +29,9 @@ docker-compose up aws-agent-core
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/api/v1/query` | POST | Process user query |
-| `/api/v1/health` | GET | Health check |
-| `/api/v1/metrics` | GET | Get metrics |
+| `/invocations` | POST | Process user query |
+| `/ping` | GET | Health check |
+| `/ping` | GET | Readiness check |
 
 ---
 
@@ -39,7 +39,7 @@ docker-compose up aws-agent-core
 
 ### Process Query (Minimal)
 ```json
-POST http://localhost:8000/api/v1/query
+POST http://localhost:8080/invocations
 Content-Type: application/json
 
 {
@@ -49,7 +49,7 @@ Content-Type: application/json
 
 ### Process Query (Full)
 ```json
-POST http://localhost:8000/api/v1/query
+POST http://localhost:8080/invocations
 Content-Type: application/json
 
 {
@@ -67,12 +67,12 @@ Content-Type: application/json
 
 ### Health Check
 ```
-GET http://localhost:8000/api/v1/health
+GET http://localhost:8080/ping
 ```
 
 ### Get Metrics
 ```
-GET http://localhost:8000/api/v1/metrics
+GET http://localhost:8080/ping
 ```
 
 ---
@@ -123,7 +123,7 @@ GET http://localhost:8000/api/v1/metrics
 
 **Example:**
 ```
-POST /api/v1/query?agent_id=AGENT123&agent_alias_id=ALIAS456
+POST /invocations
 ```
 
 ---
@@ -194,9 +194,7 @@ POST /api/v1/query?agent_id=AGENT123&agent_alias_id=ALIAS456
 
 ## API Documentation URLs
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI JSON**: http://localhost:8000/openapi.json
+- **Health**: http://localhost:8080/ping
 
 ---
 
@@ -204,7 +202,7 @@ POST /api/v1/query?agent_id=AGENT123&agent_alias_id=ALIAS456
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `base_url` | `http://localhost:8000` | API base URL |
+| `base_url` | `http://localhost:8080` | API base URL |
 | `api_version` | `v1` | API version |
 | `session_id` | `session-123` | Default session ID |
 | `agent_id` | `` | AWS agent ID (optional) |

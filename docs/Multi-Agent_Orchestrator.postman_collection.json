@@ -200,7 +200,7 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/{{api_version}}/health",
+							"raw": "{{base_url}}/ping",
 							"host": [
 								"{{base_url}}"
 							],
@@ -219,7 +219,7 @@
 								"method": "GET",
 								"header": [],
 								"url": {
-									"raw": "{{base_url}}/api/{{api_version}}/health",
+									"raw": "{{base_url}}/ping",
 									"host": [
 										"{{base_url}}"
 									],
@@ -256,7 +256,7 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/{{api_version}}/metrics",
+							"raw": "{{base_url}}/ping",
 							"host": [
 								"{{base_url}}"
 							],
@@ -275,7 +275,7 @@
 								"method": "GET",
 								"header": [],
 								"url": {
-									"raw": "{{base_url}}/api/{{api_version}}/metrics",
+									"raw": "{{base_url}}/ping",
 									"host": [
 										"{{base_url}}"
 									],
@@ -345,7 +345,7 @@
 	"variable": [
 		{
 			"key": "base_url",
-			"value": "http://localhost:8000",
+			"value": "http://localhost:8080",
 			"type": "string"
 		},
 		{

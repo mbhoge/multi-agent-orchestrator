@@ -5,11 +5,12 @@ This document explores the possibilities of calling LangGraph Supervisor agent u
 ## Table of Contents
 
 1. [Integration Approaches](#integration-approaches)
-2. [Approach 1: Deploy LangGraph as Agent Core Agent](#approach-1-deploy-langgraph-as-agent-core-agent)
-3. [Approach 2: Use Agent Core Tools/Actions to Call LangGraph](#approach-2-use-agent-core-toolsactions-to-call-langgraph)
-4. [Approach 3: Direct HTTP Invocation (Current Implementation)](#approach-3-direct-http-invocation-current-implementation)
-5. [Code Examples](#code-examples)
-6. [References](#references)
+2. [Current Implementation: LangGraph in Snowflake Container Services](#current-implementation-langgraph-in-snowflake-container-services)
+3. [Approach 1: Deploy LangGraph as Agent Core Agent](#approach-1-deploy-langgraph-as-agent-core-agent)
+4. [Approach 2: Use Agent Core Tools/Actions to Call LangGraph](#approach-2-use-agent-core-toolsactions-to-call-langgraph)
+5. [Approach 3: Direct HTTP Invocation (Legacy)](#approach-3-direct-http-invocation-legacy)
+6. [Code Examples](#code-examples)
+7. [References](#references)
 
 ---
 
@@ -27,10 +28,39 @@ Based on AWS documentation and best practices, there are **three main approaches
    - Agent Core invokes LangGraph via action groups
    - Useful for multi-agent orchestration
 
-### 3. **Direct HTTP Invocation** (Current Implementation)
+### 3. **Direct HTTP Invocation** (Legacy)
    - Agent Core orchestrator makes HTTP calls to LangGraph
    - Simple but less integrated
    - Requires manual connection management
+
+---
+
+## Current Implementation: LangGraph in Snowflake Container Services
+
+The LangGraph supervisor is packaged as a container and deployed to **Snowflake Container
+Services (SPCS)**. The AWS AgentCore Runtime invokes the SPCS endpoint over private
+connectivity. Inside SPCS, the supervisor uses **Snowflake Cortex LLMs** for planning/execution
+and calls the **Snowflake AgentGateway** over HTTP.
+
+### Deployment Summary
+
+1. **Build and push the container image** to your Snowflake image registry.
+2. **Create a compute pool** for SPCS.
+3. **Create the SPCS service** using the spec in `snowflake/spcs/langgraph_service.yml`.
+4. **Capture the private service endpoint** for the SPCS service.
+5. **Configure AgentCore Runtime** to target the SPCS endpoint.
+
+### Required Environment Variables (SPCS)
+
+- `SNOWFLAKE_CORTEX_LLM_MODEL` (default fallback uses `PLANNER_LLM_MODEL_ID`)
+- `SNOWFLAKE_CORTEX_MODE` (`connector` or `snowpark`)
+- `SNOWFLAKE_CORTEX_AGENT_GATEWAY_ENDPOINT` (private ECS endpoint)
+- `LANGFUSE_*` (optional observability)
+
+### Notes on Private Connectivity
+
+This setup assumes **private connectivity only** between AWS and Snowflake. The SPCS
+service endpoint must be reachable from the AgentCore Runtime via private networking.
 
 ---
 
@@ -341,7 +371,7 @@ def lambda_handler(event, context):
 
 ---
 
-## Approach 3: Direct HTTP Invocation (Current Implementation)
+## Approach 3: Direct HTTP Invocation (Legacy)
 
 This is the approach currently used in the codebase. It's simpler but less integrated.
 

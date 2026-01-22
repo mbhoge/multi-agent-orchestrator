@@ -1,6 +1,6 @@
-"""AWS Agent Core API module.
+"""AWS Agent Core API module for local AgentCore runtime development."""
 
-This module previously contained FastAPI REST API code.
-FastAPI has been removed as the project now uses AWS Lambda and API Gateway.
-"""
+from aws_agent_core.api.main import run
+
+__all__ = ["run"]
 

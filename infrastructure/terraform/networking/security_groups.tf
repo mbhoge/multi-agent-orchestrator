@@ -38,8 +38,16 @@ resource "aws_security_group" "ecs_service" {
   vpc_id      = aws_vpc.main.id
   
   ingress {
-    description     = "Allow traffic from ALB"
-    from_port       = 8000
+    description     = "Allow traffic from ALB (aws-agent-core)"
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  ingress {
+    description     = "Allow traffic from ALB (internal services)"
+    from_port       = 8001
     to_port         = 8002
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
@@ -47,8 +55,16 @@ resource "aws_security_group" "ecs_service" {
   
   ingress {
     description = "Allow inter-service communication"
-    from_port   = 8000
+    from_port   = 8001
     to_port     = 8002
+    protocol    = "tcp"
+    self        = true
+  }
+
+  ingress {
+    description = "Allow inter-service communication (aws-agent-core)"
+    from_port   = 8080
+    to_port     = 8080
     protocol    = "tcp"
     self        = true
   }

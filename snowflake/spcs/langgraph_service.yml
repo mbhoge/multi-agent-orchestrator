@@ -1,0 +1,30 @@
+spec:
+  service:
+    name: langgraph-supervisor
+    compute_pool: <COMPUTE_POOL_NAME>
+    containers:
+      - name: langgraph-supervisor
+        image: <IMAGE_REPOSITORY_URL>/langgraph:latest
+        env:
+          LANGFUSE_HOST: https://<LANGFUSE_HOST>
+          LANGFUSE_PUBLIC_KEY: <LANGFUSE_PUBLIC_KEY>
+          LANGFUSE_SECRET_KEY: <LANGFUSE_SECRET_KEY>
+          LANGFUSE_PROJECT_ID: <LANGFUSE_PROJECT_ID>
+          SNOWFLAKE_CORTEX_AGENT_GATEWAY_ENDPOINT: https://<SNOWFLAKE_AGENT_GATEWAY_ENDPOINT>
+          SNOWFLAKE_ACCOUNT: <SNOWFLAKE_ACCOUNT>
+          SNOWFLAKE_USER: <SNOWFLAKE_USER>
+          SNOWFLAKE_PASSWORD: <SNOWFLAKE_PASSWORD>
+          SNOWFLAKE_WAREHOUSE: <SNOWFLAKE_WAREHOUSE>
+          SNOWFLAKE_DATABASE: <SNOWFLAKE_DATABASE>
+          SNOWFLAKE_SCHEMA: <SNOWFLAKE_SCHEMA>
+          SNOWFLAKE_ROLE: <SNOWFLAKE_ROLE>
+          SNOWFLAKE_CORTEX_LLM_MODEL: <CORTEX_MODEL_NAME>
+        ports:
+          - port: 8001
+            protocol: http
+    endpoints:
+      - name: http
+        port: 8001
+        protocol: http
+    external_access_integrations:
+      - <EXTERNAL_ACCESS_INTEGRATION_NAME>

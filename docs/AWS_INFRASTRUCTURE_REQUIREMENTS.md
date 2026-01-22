@@ -739,7 +739,7 @@ The Multi-Agent Orchestrator requires the following AWS services to operate:
    - HTTP/HTTPS from internet (port 80/443)
 
 2. **To ECS Tasks** (from Load Balancer):
-   - Port 8000 (AWS Agent Core)
+   - Port 8080 (AWS Agent Core)
    - Port 8001 (LangGraph)
    - Port 8002 (Snowflake Cortex)
 

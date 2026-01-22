@@ -1,5 +1,9 @@
 # Microsoft Teams Integration Guide (Lambda + API Gateway)
 
+> **Deprecated:** The AWS Lambda handlers under `aws_agent_core/lambda_handlers` were removed.
+> Use the `teams_adapter` service or an external webhook receiver that forwards messages to
+> `/invocations` on the AgentCore HTTP server.
+
 ## Quick Start
 
 This guide covers integrating Microsoft Teams with the Multi-Agent Orchestrator using **Outgoing Webhooks** and **AWS Lambda + API Gateway**.
@@ -15,8 +19,8 @@ Teams Channel → @mention webhook → API Gateway → Lambda → Orchestrator �
 ### Step 1: Build Lambda Deployment Packages
 
 ```bash
-cd multi-agent-orchestrator
-./scripts/build_lambda_packages.sh
+# Legacy script removed with Lambda handlers
+# Use teams_adapter or an external webhook receiver instead.
 ```
 
 This creates:

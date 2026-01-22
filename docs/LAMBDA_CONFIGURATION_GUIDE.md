@@ -1,6 +1,10 @@
 # Lambda Configuration Guide for Multi-Agent Orchestrator
 
-This guide provides detailed instructions for configuring AWS Lambda functions to work with containerized ECS services in the multi-agent orchestrator architecture.
+> **Deprecated:** The AWS Agent Core Lambda handlers have been removed. The system now runs an
+> AgentCore-compatible HTTP server that exposes `/invocations` and `/ping` on port `8080`.
+> Use `agentcore dev` or `python -m aws_agent_core.api` for local runs.
+
+This guide is kept for historical reference only and no longer reflects the current runtime flow.
 
 ## Table of Contents
 

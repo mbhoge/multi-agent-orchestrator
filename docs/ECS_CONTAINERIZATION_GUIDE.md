@@ -172,7 +172,7 @@ docker build -f docker/langfuse/Dockerfile -t langfuse:latest .
 
 ```bash
 # Test AWS Agent Core
-docker run -p 8000:8000 \
+docker run -p 8080:8080 \
     -e AWS_REGION=us-east-1 \
     -e LANGGRAPH_ENDPOINT=http://localhost:8001 \
     aws-agent-core:latest

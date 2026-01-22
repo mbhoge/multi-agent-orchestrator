@@ -69,7 +69,7 @@ async def test_accuracy_golden_set() -> None:
     dataset = _load_dataset(dataset_path)
     dataset_id = str(dataset.get("dataset_id", "unknown"))
 
-    endpoint = os.getenv("ACCURACY_EVAL_ENDPOINT", "http://localhost:8000/api/v1/query")
+    endpoint = os.getenv("ACCURACY_EVAL_ENDPOINT", "http://localhost:8080/invocations")
     timeout = float(os.getenv("ACCURACY_EVAL_TIMEOUT", "120"))
     require_trulens = os.getenv("ACCURACY_REQUIRE_TRULENS", "true").lower() in {"1", "true", "yes"}
 

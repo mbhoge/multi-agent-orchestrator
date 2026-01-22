@@ -1,4 +1,4 @@
-"""AWS Agent Core HTTP server for local AgentCore runtime development."""
+"""LangGraph supervisor HTTP server for Snowflake Container Services."""
 
 from __future__ import annotations
 
@@ -11,20 +11,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
-from aws_agent_core.orchestrator import MultiAgentOrchestrator
+from langgraph.supervisor import LangGraphSupervisor
 from shared.models.request import AgentRequest
-from shared.utils.exceptions import AWSAgentCoreError, LangGraphError
+from shared.utils.exceptions import LangGraphError
 
 logger = logging.getLogger(__name__)
 
-_orchestrator: Optional[MultiAgentOrchestrator] = None
+_supervisor: Optional[LangGraphSupervisor] = None
 
 
-def _get_orchestrator() -> MultiAgentOrchestrator:
-    global _orchestrator
-    if _orchestrator is None:
-        _orchestrator = MultiAgentOrchestrator()
-    return _orchestrator
+def _get_supervisor() -> LangGraphSupervisor:
+    global _supervisor
+    if _supervisor is None:
+        _supervisor = LangGraphSupervisor()
+    return _supervisor
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: Dict[str, Any], request_id: str) -> None:
@@ -32,7 +32,7 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: Dict[s
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("X-Amzn-RequestId", request_id)
+    handler.send_header("X-Request-Id", request_id)
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -55,8 +55,8 @@ def _error_response(
     _json_response(handler, status, payload, request_id)
 
 
-class AgentCoreRequestHandler(BaseHTTPRequestHandler):
-    server_version = "AgentCoreLangGraph/1.0"
+class LangGraphRequestHandler(BaseHTTPRequestHandler):
+    server_version = "LangGraphSupervisor/1.0"
 
     def do_GET(self) -> None:
         request_id = str(uuid.uuid4())
@@ -75,7 +75,7 @@ class AgentCoreRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         request_id = str(uuid.uuid4())
         path = urlparse(self.path).path
-        if path != "/invocations":
+        if path not in {"/invocations", "/supervisor/process"}:
             _error_response(
                 self,
                 status=HTTPStatus.NOT_FOUND,
@@ -140,12 +140,12 @@ class AgentCoreRequestHandler(BaseHTTPRequestHandler):
         )
 
         try:
-            orchestrator = _get_orchestrator()
-            response = asyncio.run(orchestrator.process_request(agent_request))
-            response_dict = response.model_dump() if hasattr(response, "model_dump") else response.dict()
+            supervisor = _get_supervisor()
+            response = asyncio.run(supervisor.process_request(agent_request, session_id=session_id))
+            response_dict = response if isinstance(response, dict) else response
             _json_response(self, HTTPStatus.OK, response_dict, request_id)
-        except (AWSAgentCoreError, LangGraphError) as exc:
-            logger.error("AgentCore invocation failed: %s", exc)
+        except LangGraphError as exc:
+            logger.error("LangGraph invocation failed: %s", exc)
             _error_response(
                 self,
                 status=HTTPStatus.BAD_GATEWAY,
@@ -153,8 +153,8 @@ class AgentCoreRequestHandler(BaseHTTPRequestHandler):
                 error_type=type(exc).__name__,
                 request_id=request_id,
             )
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.exception("Unhandled AgentCore invocation error")
+        except Exception as exc:  # pragma: no cover
+            logger.exception("Unhandled LangGraph invocation error")
             _error_response(
                 self,
                 status=HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -165,14 +165,13 @@ class AgentCoreRequestHandler(BaseHTTPRequestHandler):
             )
 
 
-def run(host: str = "0.0.0.0", port: int = 8080) -> None:
-    """Run the local AgentCore HTTP server."""
-    server = ThreadingHTTPServer((host, port), AgentCoreRequestHandler)
-    logger.info("AgentCore server listening on %s:%s", host, port)
+def run(host: str = "0.0.0.0", port: int = 8001) -> None:
+    """Run the LangGraph supervisor HTTP server."""
+    server = ThreadingHTTPServer((host, port), LangGraphRequestHandler)
+    logger.info("LangGraph supervisor listening on %s:%s", host, port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        logger.info("AgentCore server shutting down")
+        logger.info("LangGraph supervisor shutting down")
     finally:
         server.server_close()
-

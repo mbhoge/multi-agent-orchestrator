@@ -12,17 +12,14 @@ locals {
         name  = "aws-agent-core"
         image = "${aws_ecr_repository.repos["aws-agent-core"].repository_url}:latest"
         portMappings = [{
-          containerPort = 8000
+          containerPort = 8080
           protocol      = "tcp"
         }]
+        # LangGraph supervisor is invoked in-process by aws-agent-core
         environment = [
           {
             name  = "AWS_REGION"
             value = var.aws_region
-          },
-          {
-            name  = "LANGGRAPH_ENDPOINT"
-            value = "http://${aws_service_discovery_service.langgraph.name}.${aws_service_discovery_private_dns_namespace.main.name}:8001"
           }
         ]
         logConfiguration = {

@@ -16,7 +16,7 @@ resource "aws_lb" "main" {
 
 resource "aws_lb_target_group" "aws_agent_core" {
   name        = "${var.project_name}-${var.environment}-aws-agent-core-tg"
-  port        = 8000
+  port        = 8080
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
   target_type = "ip"
@@ -27,7 +27,7 @@ resource "aws_lb_target_group" "aws_agent_core" {
     unhealthy_threshold = 2
     timeout             = 5
     interval            = 30
-    path                = "/health"
+    path                = "/ping"
     protocol            = "HTTP"
     matcher             = "200"
   }

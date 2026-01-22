@@ -1,4 +1,7 @@
-"""Entry point for AWS Agent Core API service.
+"""Entry point for the local AgentCore HTTP server."""
 
-FastAPI has been removed. This service now runs as AWS Lambda functions.
-"""
+from aws_agent_core.api.main import run
+
+
+if __name__ == "__main__":
+    run()

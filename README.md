@@ -1,13 +1,13 @@
 # Multi-Agent Orchestrator
 
-A containerized multi-agent orchestrator system built with AWS Agent Core, LangGraph, and Snowflake Cortex AI agents. This system provides intelligent routing and coordination of AI agents to handle both structured and unstructured data queries.
+A containerized multi-agent orchestrator system built with AWS Agent Core, LangGraph, and Snowflake Cortex AI agents. LangGraph runs inside Snowflake Container Services (SPCS) and uses Snowflake Cortex LLMs for planning and execution.
 
 ## Architecture
 
 The system follows a three-tier architecture with integrated Langfuse prompt management:
 
 ```
-User Request → AWS Agent Core (REST API) → LangGraph Supervisor → Snowflake Cortex AI Agents
+User Request → AWS Agent Core (REST API) → LangGraph Supervisor (SPCS) → Snowflake Cortex AI Agents
                      ↓                           ↓                          ↓
               AWS Observability            Langfuse Container         TruLens Observability
                      ↓                           ↓                          ↓
@@ -19,13 +19,13 @@ User Request → AWS Agent Core (REST API) → LangGraph Supervisor → Snowflak
 
 ### Components
 
-1. **AWS Agent Core**: Multi-agent orchestrator using AWS Bedrock Agent Core Runtime SDK
+1. **AWS Agent Core**: Orchestrator using AWS Bedrock Agent Core Runtime SDK
    - REST API (AWS Lambda + API Gateway)
    - Observability and tracing via AWS Agent Core Runtime SDK
    - **Langfuse prompt management**: Uses `orchestrator_query` prompt
-   - Invokes LangGraph for reasoning
+   - Invokes LangGraph supervisor running in SPCS
 
-2. **LangGraph**: Multi-agent supervisor using StateGraph pattern
+2. **LangGraph (SPCS)**: Multi-agent supervisor using StateGraph pattern
    - **StateGraph workflow**: Declarative workflow with nodes (load_state, plan_request, execute_plan, invoke_agents, combine_responses, advance_plan, update_memory, log_observability, handle_error)
    - **Automatic state management**: LangGraph handles state passing between nodes
    - Request routing to appropriate Snowflake agents
@@ -119,8 +119,7 @@ python3 scripts/install_aws_sdk.py
    ```
 
 4. **Access services**:
-   - AWS Agent Core API: http://localhost:8000
-   - LangGraph Supervisor: http://localhost:8001
+   - AWS Agent Core API: http://localhost:8080
    - Snowflake Cortex Agent: http://localhost:8002
    - Langfuse: http://localhost:3000
 
@@ -144,8 +143,7 @@ pytest --cov=. --cov-report=html
 See `.env.example` for all configuration options. Key variables:
 
 - **AWS**: `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
-- **LangGraph**: `LANGGRAPH_ENDPOINT`, `LANGGRAPH_TIMEOUT`
-- **Planner LLM (Bedrock)**: `PLANNER_LLM_MODEL_ID`, `PLANNER_LLM_REGION`, `PLANNER_LLM_TEMPERATURE`, `PLANNER_LLM_MAX_TOKENS`
+- **LangGraph (SPCS)**: `SNOWFLAKE_CORTEX_LLM_MODEL`, `SNOWFLAKE_CORTEX_MODE`
 - **Langfuse**: `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`
 - **Snowflake**: `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD`, etc.
 - **TruLens**: `TRULENS_ENABLED`, `TRULENS_APP_ID`, `TRULENS_API_KEY`
@@ -213,7 +211,7 @@ Key variables in `infrastructure/terraform/variables.tf`:
 #### Process Query
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/query \
+curl -X POST http://localhost:8080/invocations \
   -H "Content-Type: application/json" \
   -d '{
     "query": "What are the total sales for last month?",
@@ -225,13 +223,7 @@ curl -X POST http://localhost:8000/api/v1/query \
 #### Health Check
 
 ```bash
-curl http://localhost:8000/health
-```
-
-#### Metrics
-
-```bash
-curl http://localhost:8000/metrics
+curl http://localhost:8080/ping
 ```
 
 ## Observability

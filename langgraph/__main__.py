@@ -1,4 +1,7 @@
-"""Entry point for LangGraph Supervisor service.
+"""Entry point for LangGraph Supervisor service (SPCS HTTP server)."""
 
-FastAPI has been removed. This service now runs as AWS Lambda functions.
-"""
+from langgraph.api.main import run
+
+
+if __name__ == "__main__":
+    run()

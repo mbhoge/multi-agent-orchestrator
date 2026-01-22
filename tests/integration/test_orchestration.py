@@ -1,7 +1,8 @@
 """Integration tests for orchestration flow."""
 
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
+
 from aws_agent_core.orchestrator import MultiAgentOrchestrator
 from shared.models.request import AgentRequest
 
@@ -15,7 +16,7 @@ async def test_full_orchestration_flow():
         session_id="integration-test-session"
     )
     
-    with patch.object(orchestrator, '_invoke_langgraph', new_callable=AsyncMock) as mock_langgraph:
+    with patch.object(orchestrator, "_invoke_langgraph", new_callable=AsyncMock) as mock_langgraph:
         mock_langgraph.return_value = {
             "response": "Q4 sales are $1M",
             "selected_agent": "cortex_analyst",
@@ -41,7 +42,7 @@ async def test_orchestration_with_error_handling():
         session_id="error-test-session"
     )
     
-    with patch.object(orchestrator, '_invoke_langgraph', new_callable=AsyncMock) as mock_langgraph:
+    with patch.object(orchestrator, "_invoke_langgraph", new_callable=AsyncMock) as mock_langgraph:
         mock_langgraph.side_effect = Exception("Test error")
         
         with pytest.raises(Exception):
