@@ -25,6 +25,12 @@ try:
     DefaultDBConnector = importlib.import_module(
         "trulens.core.database.connector.default"
     ).DefaultDBConnector
+    TruApp = importlib.import_module("trulens.apps.app").TruApp
+    SnowflakeConnector = importlib.import_module(
+        "trulens.connectors.snowflake"
+    ).SnowflakeConnector
+    Run = importlib.import_module("trulens.core.run").Run
+    RunConfig = importlib.import_module("trulens.core.run").RunConfig
     OpenAIProvider = importlib.import_module("trulens.providers.openai").OpenAI
     np = importlib.import_module("numpy")
 except Exception:  # pragma: no cover - optional dependency
@@ -57,6 +63,10 @@ except Exception:  # pragma: no cover - optional dependency
     Selector = None
     TruSession = None
     DefaultDBConnector = None
+    TruApp = None
+    SnowflakeConnector = None
+    Run = None
+    RunConfig = None
     OpenAIProvider = None
     np = None
 
@@ -101,6 +111,9 @@ class TruLensClient:
 
         self._session = self._init_session()
         self._feedbacks = self._build_feedbacks()
+        self._tru_app = None
+        self._run = None
+        self._run_started = False
 
     def _init_session(self) -> Optional[Any]:
         """Initialize a TruLens session for storing traces and evaluations."""
@@ -169,6 +182,114 @@ class TruLensClient:
         except Exception as exc:
             logger.warning(f"Failed to build TruLens feedbacks: {exc}")
             return []
+
+    def _init_trulens_app(self) -> Optional[Any]:
+        """Register TruLens app with Snowflake connector (for eval storage)."""
+        if (
+            not self.enabled
+            or not self.snowflake_eval_enabled
+            or TruApp is None
+            or SnowflakeConnector is None
+        ):
+            return None
+        if self._tru_app is not None:
+            return self._tru_app
+
+        session = self._get_snowpark_session()
+        if session is None:
+            logger.warning("Snowpark session unavailable; TruLens app not registered.")
+            return None
+
+        app_name = os.getenv("TRULENS_APP_NAME", settings.app_name)
+        app_version = os.getenv("TRULENS_APP_VERSION", settings.app_version)
+        try:
+            connector = SnowflakeConnector(snowpark_session=session)
+            self._tru_app = TruApp(
+                self,
+                app_name=app_name,
+                app_version=app_version,
+                connector=connector,
+            )
+            return self._tru_app
+        except Exception as exc:
+            logger.warning(f"Failed to register TruLens app: {exc}")
+            return None
+
+    def _init_run(self) -> Optional[Any]:
+        """Initialize a TruLens run from environment config."""
+        if (
+            not self.enabled
+            or not self.snowflake_eval_enabled
+            or RunConfig is None
+            or Run is None
+        ):
+            return None
+        if self._run is not None:
+            return self._run
+
+        tru_app = self._init_trulens_app()
+        if tru_app is None:
+            return None
+
+        run_name = os.getenv("TRULENS_RUN_NAME")
+        dataset_name = os.getenv("TRULENS_DATASET_NAME")
+        if not run_name or not dataset_name:
+            logger.info("TruLens run config missing; skipping run registration.")
+            return None
+
+        dataset_label = os.getenv("TRULENS_DATASET_LABEL", "")
+        dataset_description = os.getenv("TRULENS_DATASET_DESCRIPTION", "")
+        source_type = os.getenv("TRULENS_DATASET_SOURCE_TYPE", "TABLE")
+        spec_input = os.getenv("TRULENS_DATASET_SPEC_INPUT", "QUERY")
+        spec_ground_truth = os.getenv(
+            "TRULENS_DATASET_SPEC_GROUND_TRUTH", "GROUND_TRUTH_RESPONSE"
+        )
+        try:
+            run_config = RunConfig(
+                run_name=run_name,
+                dataset_name=dataset_name,
+                description=dataset_description,
+                label=dataset_label,
+                source_type=source_type,
+                dataset_spec={
+                    "input": spec_input,
+                    "ground_truth_output": spec_ground_truth,
+                },
+            )
+            self._run = tru_app.add_run(run_config=run_config)
+            return self._run
+        except Exception as exc:
+            logger.warning(f"Failed to register TruLens run: {exc}")
+            return None
+
+    def start_run(self) -> None:
+        """Start TruLens run (best-effort)."""
+        if self._run_started:
+            return
+        run = self._init_run()
+        if run is None:
+            return
+        try:
+            run.start()
+            self._run_started = True
+        except Exception as exc:
+            logger.warning(f"Failed to start TruLens run: {exc}")
+
+    def compute_metrics(self) -> None:
+        """Compute TruLens run metrics (best-effort)."""
+        run = self._init_run()
+        if run is None:
+            return
+        try:
+            run.compute_metrics(
+                [
+                    "answer_relevance",
+                    "context_relevance",
+                    "groundedness",
+                ]
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to compute TruLens metrics: {exc}")
 
     def _get_snowflake_connection(self) -> Optional[Any]:
         """Create a Snowflake connector session for Cortex evals."""
@@ -292,7 +413,7 @@ class TruLensClient:
         span_type=SpanAttributes.SpanType.RETRIEVAL,
         attributes={
             SpanAttributes.RETRIEVAL.QUERY_TEXT: "query",
-            SpanAttributes.RETRIEVAL.RETRIEVED_CONTEXTS: "selected_tools",
+            SpanAttributes.RETRIEVAL.RETRIEVED_CONTEXTS: "return",
         },
     )
     def trace_tool_selection(self, query: str, selected_tools: List[str]) -> List[str]:
@@ -303,7 +424,7 @@ class TruLensClient:
         span_type=SpanAttributes.SpanType.RETRIEVAL,
         attributes={
             SpanAttributes.RETRIEVAL.QUERY_TEXT: "query",
-            SpanAttributes.RETRIEVAL.RETRIEVED_CONTEXTS: "retrieved_contexts",
+            SpanAttributes.RETRIEVAL.RETRIEVED_CONTEXTS: "return",
         },
     )
     def trace_retrieval_contexts(self, query: str, retrieved_contexts: List[str]) -> List[str]:
@@ -322,7 +443,7 @@ class TruLensClient:
         span_type=SpanAttributes.SpanType.RECORD_ROOT,
         attributes={
             SpanAttributes.RECORD_ROOT.INPUT: "query",
-            SpanAttributes.RECORD_ROOT.OUTPUT: "response",
+            SpanAttributes.RECORD_ROOT.OUTPUT: "return",
             SpanAttributes.RECORD_ROOT.GROUND_TRUTH_OUTPUT: "ground_truth",
         },
     )
@@ -368,6 +489,8 @@ class TruLensClient:
                 return
             
             logger.debug(f"Logging agent execution to TruLens: session={session_id}, agent={agent_type}")
+
+            self.start_run()
             
             # Trace internal steps if provided
             if selected_tools:
@@ -414,6 +537,7 @@ class TruLensClient:
                     context=eval_context,
                 )
                 result["trulens_eval"] = eval_result
+                self.compute_metrics()
             
             logger.debug(f"Logged to TruLens: session={session_id}")
             
