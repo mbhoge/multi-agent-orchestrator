@@ -2,6 +2,10 @@
 
 Complete step-by-step guide for integrating Microsoft Teams Outgoing Webhooks with AWS API Gateway and Lambda functions.
 
+> **Note:** The legacy AWS Lambda handlers under `aws_agent_core/lambda_handlers` were removed.
+> Teams webhook handling should be implemented via the `teams_adapter` service or an external
+> webhook receiver that forwards messages to `/invocations`.
+
 ## Table of Contents
 
 1. [Overview](#overview)
@@ -358,7 +362,7 @@ aws lambda add-permission \
    - **Code** tab → **"Runtime settings"** → **"Edit"**
 
 2. **Set Handler**
-   - **Handler**: `aws_agent_core.lambda_handlers.teams_webhook_handler.lambda_handler`
+   - **Handler (legacy)**: `aws_agent_core.lambda_handlers.teams_webhook_handler.lambda_handler`
    - **Runtime**: `Python 3.11` (should already be set)
 
 3. **Save Changes**
@@ -1167,7 +1171,7 @@ https://<api-gateway-id>.execute-api.<region>.amazonaws.com/<stage>/api/teams/we
 
 **Lambda Handler:**
 ```
-aws_agent_core.lambda_handlers.teams_webhook_handler.lambda_handler
+aws_agent_core.lambda_handlers.teams_webhook_handler.lambda_handler (legacy)
 ```
 
 **Environment Variable:**

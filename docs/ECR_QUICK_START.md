@@ -85,7 +85,7 @@ Example:
 
 The following services are containerized:
 
-1. **aws-agent-core** - Port 8000
+1. **aws-agent-core** - Port 8080
 2. **langgraph** - Port 8001
 3. **snowflake-cortex** - Port 8002
 4. **langfuse** - Port 3000

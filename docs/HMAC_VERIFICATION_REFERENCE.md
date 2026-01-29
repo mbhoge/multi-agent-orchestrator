@@ -2,6 +2,10 @@
 
 Complete reference guide for Microsoft Teams webhook HMAC signature verification, including implementation details, code examples, and testing procedures.
 
+> **Note:** The legacy AWS Lambda handlers under `aws_agent_core/lambda_handlers` were removed.
+> Teams webhook handling should be implemented via the `teams_adapter` service or an external
+> webhook receiver that forwards messages to `/invocations`.
+
 ## Table of Contents
 
 1. [Overview](#overview)
@@ -82,7 +86,7 @@ signature = base64(HMAC-SHA256(security_token, request_body))
 
 The Lambda handler includes HMAC verification:
 
-**File**: `aws_agent_core/lambda_handlers/teams_webhook_handler.py`
+**File (legacy)**: `aws_agent_core/lambda_handlers/teams_webhook_handler.py`
 
 ```python
 def verify_teams_webhook_signature(

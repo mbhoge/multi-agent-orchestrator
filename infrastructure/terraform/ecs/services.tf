@@ -77,7 +77,7 @@ resource "aws_ecs_service" "aws_agent_core" {
   load_balancer {
     target_group_arn = aws_lb_target_group.aws_agent_core.arn
     container_name   = "aws-agent-core"
-    container_port   = 8000
+    container_port   = 8080
   }
   
   depends_on = [

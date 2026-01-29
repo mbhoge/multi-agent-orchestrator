@@ -1,0 +1,51 @@
+spec:
+  containers:
+    - name: langgraph-supervisor
+      image: /<DB_NAME>/<SCHEMA_NAME>/<REPOSITORY_NAME>/langgraph:latest
+      env:
+        # LangGraph → Gateway (Option B: service-to-service; set to gateway service URL)
+        SNOWFLAKE_CORTEX_AGENT_GATEWAY_ENDPOINT: http://<GATEWAY_SERVICE_HOST>:8002
+
+        # Snowflake (used by Cortex COMPLETE / connector mode in this codebase)
+        SNOWFLAKE_ACCOUNT: <SNOWFLAKE_ACCOUNT>
+        SNOWFLAKE_WAREHOUSE: <SNOWFLAKE_WAREHOUSE>
+        SNOWFLAKE_DATABASE: <SNOWFLAKE_DATABASE>
+        SNOWFLAKE_SCHEMA: <SNOWFLAKE_SCHEMA>
+        SNOWFLAKE_ROLE: <SNOWFLAKE_ROLE>
+
+        # Cortex LLM model selection (planner/executor)
+        SNOWFLAKE_CORTEX_LLM_MODEL: <CORTEX_MODEL_NAME>
+        SNOWFLAKE_CORTEX_MODE: connector
+
+        # Optional Langfuse (prompt mgmt / observability)
+        LANGFUSE_HOST: https://<LANGFUSE_HOST>
+        LANGFUSE_PUBLIC_KEY: <LANGFUSE_PUBLIC_KEY>
+        LANGFUSE_PROJECT_ID: <LANGFUSE_PROJECT_ID>
+
+      secrets:
+        # Snowflake username/password for connector auth (mapped from a TYPE=PASSWORD secret)
+        - snowflakeSecret:
+            objectName: <SNOWFLAKE_PASSWORD_SECRET_OBJECT>
+            envVarName: SNOWFLAKE_USER
+            secretKeyRef: username
+        - snowflakeSecret:
+            objectName: <SNOWFLAKE_PASSWORD_SECRET_OBJECT>
+            envVarName: SNOWFLAKE_PASSWORD
+            secretKeyRef: password
+
+        # Optional Langfuse secret key (mapped from a TYPE=GENERIC_STRING secret)
+        - snowflakeSecret:
+            objectName: <LANGFUSE_SECRET_KEY_SECRET_OBJECT>
+            envVarName: LANGFUSE_SECRET_KEY
+            secretKeyRef: secret_string
+
+      readinessProbe:
+        port: 8001
+        path: /ping
+
+  endpoints:
+    - name: http
+      port: 8001
+      protocol: HTTP
+      public: true
+

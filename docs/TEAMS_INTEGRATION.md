@@ -16,6 +16,10 @@
 
 The Multi-Agent Orchestrator integrates with Microsoft Teams using **Outgoing Webhooks** to enable conversational AI interactions directly within Teams channels. Users can @mention the webhook in a channel to query the orchestrator's AI agents (Snowflake Cortex AI Analyst, Search, etc.) through natural language messages.
 
+> **Note:** The legacy AWS Lambda handlers under `aws_agent_core/lambda_handlers` were removed.
+> Teams webhook handling should be implemented via the `teams_adapter` service or an external
+> webhook receiver that forwards messages to `/invocations`.
+
 ### Key Features
 
 - **Natural Language Queries**: Users can @mention the webhook in Teams channels to ask questions
@@ -23,7 +27,7 @@ The Multi-Agent Orchestrator integrates with Microsoft Teams using **Outgoing We
 - **HMAC Security**: Webhook requests are verified using HMAC signatures
 - **Multi-Agent Routing**: Automatically routes queries to appropriate Snowflake Cortex AI agents
 - **Error Handling**: User-friendly error messages
-- **Serverless Architecture**: Runs on AWS Lambda with API Gateway for automatic scaling
+- **Serverless Architecture**: Previously ran on AWS Lambda with API Gateway (legacy)
 
 ---
 
@@ -81,7 +85,7 @@ The Multi-Agent Orchestrator integrates with Microsoft Teams using **Outgoing We
 
 ### Components
 
-1. **Lambda Handler** (`aws_agent_core/lambda_handlers/teams_webhook_handler.py`)
+1. **Lambda Handler (legacy)** (`aws_agent_core/lambda_handlers/teams_webhook_handler.py`)
    - Handles Teams outgoing webhook requests
    - Verifies HMAC signatures
    - Transforms Teams webhook payloads ↔ AgentRequest/Response
@@ -374,7 +378,7 @@ if settings.teams.teams_enabled:
 
 2. **Configure Emulator**
    - Open Emulator
-   - Enter bot URL: `http://localhost:8000/api/teams/webhook`
+   - Enter bot URL (legacy): `http://localhost:8080/invocations`
    - For local testing, you can use placeholder credentials:
      - App ID: `00000000-0000-0000-0000-000000000000`
      - App Password: (leave blank or use placeholder)
@@ -402,13 +406,13 @@ if settings.teams.teams_enabled:
 
 ```bash
 # Health check
-curl http://localhost:8000/api/teams/webhook
+curl http://localhost:8080/invocations
 
 # Webhook verification (GET)
-curl "http://localhost:8000/api/teams/webhook?validationToken=test"
+curl "http://localhost:8080/invocations"
 
 # Send test activity (POST)
-curl -X POST http://localhost:8000/api/teams/webhook \
+curl -X POST http://localhost:8080/invocations \
   -H "Content-Type: application/json" \
   -d '{
     "type": "message",

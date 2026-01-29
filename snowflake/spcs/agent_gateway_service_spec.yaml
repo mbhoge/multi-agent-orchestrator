@@ -1,0 +1,42 @@
+spec:
+  containers:
+    - name: snowflake-cortex-gateway
+      image: /<DB_NAME>/<SCHEMA_NAME>/<REPOSITORY_NAME>/snowflake-cortex:latest
+      env:
+        # Used to construct the base URL for Snowflake REST APIs.
+        # Prefer explicit SNOWFLAKE_API_HOST over best-effort account-derived host.
+        SNOWFLAKE_API_HOST: https://<ACCOUNT_IDENTIFIER>.snowflakecomputing.com
+
+        # Agent object location for /api/v2/databases/{db}/schemas/{schema}/agents/{name}:run
+        SNOWFLAKE_CORTEX_AGENTS_DATABASE: <CORTEX_AGENTS_DATABASE>
+        SNOWFLAKE_CORTEX_AGENTS_SCHEMA: <CORTEX_AGENTS_SCHEMA>
+
+        # Optional Langfuse (prompt management passthrough)
+        LANGFUSE_HOST: https://<LANGFUSE_HOST>
+        LANGFUSE_PUBLIC_KEY: <LANGFUSE_PUBLIC_KEY>
+        LANGFUSE_PROJECT_ID: <LANGFUSE_PROJECT_ID>
+
+      secrets:
+        # Bearer token for Snowflake REST APIs (PAT or OAuth access token)
+        - snowflakeSecret:
+            objectName: <SNOWFLAKE_AUTH_TOKEN_SECRET_OBJECT>
+            envVarName: SNOWFLAKE_AUTH_TOKEN
+            secretKeyRef: secret_string
+
+        # Optional Langfuse secret key (mapped from TYPE=GENERIC_STRING)
+        - snowflakeSecret:
+            objectName: <LANGFUSE_SECRET_KEY_SECRET_OBJECT>
+            envVarName: LANGFUSE_SECRET_KEY
+            secretKeyRef: secret_string
+
+      readinessProbe:
+        port: 8002
+        path: /health
+
+  endpoints:
+    # Keep private by default; LangGraph can reach it via service-to-service communication.
+    - name: http
+      port: 8002
+      protocol: HTTP
+      public: false
+

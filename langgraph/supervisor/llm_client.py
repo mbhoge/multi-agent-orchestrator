@@ -1,22 +1,31 @@
-"""Minimal LLM client for planner/executor (AWS Bedrock)."""
+"""Minimal LLM client for planner/executor (Snowflake Cortex)."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import os
 import re
 from typing import Any, Dict, Optional
 
-import boto3
+try:  # pragma: no cover - optional dependency
+    import snowflake.connector  # type: ignore[import-not-found]
+except Exception:
+    snowflake = None  # type: ignore
 
-from shared.config.settings import PlannerLLMSettings
+try:  # pragma: no cover - optional dependency
+    from snowflake.snowpark import Session  # type: ignore[import-not-found]
+except Exception:
+    Session = None  # type: ignore
+
+from shared.config.settings import PlannerLLMSettings, settings
 
 logger = logging.getLogger(__name__)
 
 
 class PlannerLLMClient:
-    """AWS Bedrock client for planner/executor prompts."""
+    """Snowflake Cortex client for planner/executor prompts."""
 
     def __init__(self, settings: PlannerLLMSettings) -> None:
         self.settings = settings
@@ -25,46 +34,60 @@ class PlannerLLMClient:
         return await asyncio.to_thread(self._invoke, prompt=prompt, system=system)
 
     def _invoke(self, *, prompt: str, system: Optional[str]) -> str:
-        client = boto3.client("bedrock-runtime", region_name=self.settings.region)
-        if hasattr(client, "converse"):
-            return self._invoke_converse(client, prompt=prompt, system=system)
-        return self._invoke_invoke_model(client, prompt=prompt, system=system)
+        model = os.getenv("SNOWFLAKE_CORTEX_LLM_MODEL", self.settings.model_id)
+        mode = os.getenv("SNOWFLAKE_CORTEX_MODE", "connector").lower()
+        full_prompt = f"{system}\n\n{prompt}" if system else prompt
+        if mode == "snowpark":
+            return self._invoke_snowpark(model=model, prompt=full_prompt)
+        return self._invoke_connector(model=model, prompt=full_prompt)
 
-    def _invoke_converse(self, client: Any, *, prompt: str, system: Optional[str]) -> str:
-        messages = [{"role": "user", "content": [{"text": prompt}]}]
-        kwargs: Dict[str, Any] = {
-            "modelId": self.settings.model_id,
-            "messages": messages,
-            "inferenceConfig": {
-                "temperature": self.settings.temperature,
-                "maxTokens": self.settings.max_tokens,
-            },
-        }
-        if system:
-            kwargs["system"] = [{"text": system}]
-        response = client.converse(**kwargs)
-        content = response.get("output", {}).get("message", {}).get("content", [])
-        return "".join(chunk.get("text", "") for chunk in content if isinstance(chunk, dict)).strip()
-
-    def _invoke_invoke_model(self, client: Any, *, prompt: str, system: Optional[str]) -> str:
-        body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
-            "temperature": self.settings.temperature,
-            "max_tokens": self.settings.max_tokens,
-        }
-        if system:
-            body["system"] = system
-        response = client.invoke_model(
-            modelId=self.settings.model_id,
-            body=json.dumps(body),
+    def _invoke_connector(self, *, model: str, prompt: str) -> str:
+        if snowflake is None:
+            raise RuntimeError("snowflake-connector-python not available")
+        conn = snowflake.connector.connect(
+            account=settings.snowflake.snowflake_account,
+            user=settings.snowflake.snowflake_user,
+            password=settings.snowflake.snowflake_password,
+            role=settings.snowflake.snowflake_role,
+            warehouse=settings.snowflake.snowflake_warehouse,
+            database=settings.snowflake.snowflake_database,
+            schema=settings.snowflake.snowflake_schema,
         )
-        payload = json.loads(response["body"].read())
+        sql = "SELECT CORTEX.COMPLETE(%(model)s, %(prompt)s) AS result"
         try:
-            return payload["content"][0]["text"]
-        except Exception:
-            logger.error("Unexpected Bedrock response shape: %s", payload)
-            raise
+            with conn.cursor() as cur:
+                cur.execute(sql, {"model": model, "prompt": prompt})
+                row = cur.fetchone()
+                return str(row[0]) if row else ""
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _invoke_snowpark(self, *, model: str, prompt: str) -> str:
+        if Session is None:
+            raise RuntimeError("snowflake-snowpark-python not available")
+        session = Session.builder.configs(
+            {
+                "account": settings.snowflake.snowflake_account,
+                "user": settings.snowflake.snowflake_user,
+                "password": settings.snowflake.snowflake_password,
+                "role": settings.snowflake.snowflake_role,
+                "warehouse": settings.snowflake.snowflake_warehouse,
+                "database": settings.snowflake.snowflake_database,
+                "schema": settings.snowflake.snowflake_schema,
+            }
+        ).create()
+        sql = "SELECT CORTEX.COMPLETE(%(model)s, %(prompt)s) AS result"
+        try:
+            rows = session.sql(sql, params={"model": model, "prompt": prompt}).collect()
+            return str(rows[0][0]) if rows else ""
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
 
     @staticmethod
     def extract_json(text: str) -> Dict[str, Any]:

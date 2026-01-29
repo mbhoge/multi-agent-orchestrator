@@ -4,7 +4,7 @@
 
 **Local Development:**
 ```
-http://localhost:8000
+http://localhost:8080
 ```
 
 **Production:**
@@ -14,7 +14,7 @@ https://your-domain.com
 
 **Docker/Container:**
 ```
-http://aws-agent-core:8000
+http://aws-agent-core:8080
 ```
 
 ---
@@ -26,7 +26,7 @@ The FastAPI-based HTTP server has been removed. All API endpoints are now manage
 ### Updated Endpoints:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/v1/query` | Process a user query through the orchestrator |
+| `POST` | `/invocations` | Process a user query through the orchestrator |
 | `POST` | `/api/teams/webhook` | Microsoft Teams webhook endpoint |
 | `GET` | `/health` | Health check endpoint |
 | `GET` | `/metrics` | Get orchestrator metrics |
@@ -42,7 +42,7 @@ https://your-api-gateway-url.amazonaws.com/prod
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/v1/query` | Process a user query through the orchestrator |
+| `POST` | `/invocations` | Process a user query through the orchestrator |
 | `GET` | `/api/v1/health` | Health check endpoint |
 | `GET` | `/api/v1/metrics` | Get orchestrator metrics |
 
@@ -52,7 +52,7 @@ https://your-api-gateway-url.amazonaws.com/prod
 
 ### Endpoint Details
 
-**URL:** `POST /api/v1/query`
+**URL:** `POST /invocations`
 
 **Description:** Process a user query through the multi-agent orchestrator. This endpoint routes the query through LangGraph supervisor to appropriate Snowflake Cortex AI agents.
 
@@ -98,7 +98,7 @@ Accept: application/json
 
 ### Example Request 1: Basic Query
 
-**URL:** `POST http://localhost:8000/api/v1/query`
+**URL:** `POST http://localhost:8080/invocations`
 
 **Headers:**
 ```
@@ -115,7 +115,7 @@ Content-Type: application/json
 
 ### Example Request 2: Query with Context
 
-**URL:** `POST http://localhost:8000/api/v1/query`
+**URL:** `POST http://localhost:8080/invocations`
 
 **Headers:**
 ```
@@ -142,7 +142,7 @@ Content-Type: application/json
 
 ### Example Request 3: Query with AWS Agent IDs
 
-**URL:** `POST http://localhost:8000/api/v1/query?agent_id=AGENT123&agent_alias_id=ALIAS456`
+**URL:** `POST http://localhost:8080/invocations`
 
 **Headers:**
 ```
@@ -264,7 +264,7 @@ Accept: application/json
 
 ### Request
 
-**URL:** `GET http://localhost:8000/api/v1/health`
+**URL:** `GET http://localhost:8080/ping`
 
 No body or query parameters required.
 
@@ -306,7 +306,7 @@ Accept: application/json
 
 ### Request
 
-**URL:** `GET http://localhost:8000/api/v1/metrics`
+**URL:** `GET http://localhost:8080/ping`
 
 No body or query parameters required.
 
@@ -375,7 +375,7 @@ Create a Postman environment with these variables:
 
 | Variable | Initial Value | Current Value | Description |
 |----------|---------------|---------------|-------------|
-| `base_url` | `http://localhost:8000` | `http://localhost:8000` | Base URL for the API |
+| `base_url` | `http://localhost:8080` | `http://localhost:8080` | Base URL for the API |
 | `session_id` | `session-123` | `session-123` | Default session ID |
 | `agent_id` | `` | `` | AWS Bedrock agent ID (optional) |
 | `agent_alias_id` | `` | `` | AWS Bedrock agent alias ID (optional) |
@@ -565,9 +565,7 @@ Accept: {{content_type}}
 
 API Gateway provides API documentation and testing capabilities:
 
-- **Swagger UI:** `http://localhost:8000/docs`
-- **ReDoc:** `http://localhost:8000/redoc`
-- **OpenAPI JSON:** `http://localhost:8000/openapi.json`
+- **Health:** `http://localhost:8080/ping`
 
 You can use these endpoints to explore the API interactively.
 

@@ -69,9 +69,18 @@ async def test_accuracy_golden_set() -> None:
     dataset = _load_dataset(dataset_path)
     dataset_id = str(dataset.get("dataset_id", "unknown"))
 
-    endpoint = os.getenv("ACCURACY_EVAL_ENDPOINT", "http://localhost:8000/api/v1/query")
+    endpoint = os.getenv("ACCURACY_EVAL_ENDPOINT", "http://localhost:8080/invocations")
     timeout = float(os.getenv("ACCURACY_EVAL_TIMEOUT", "120"))
     require_trulens = os.getenv("ACCURACY_REQUIRE_TRULENS", "true").lower() in {"1", "true", "yes"}
+    if require_trulens:
+        required_envs = ["TRULENS_RUN_NAME", "TRULENS_DATASET_NAME"]
+        missing_envs = [name for name in required_envs if not os.getenv(name)]
+        if missing_envs:
+            pytest.skip(
+                "TruLens run config missing. Set "
+                + ", ".join(missing_envs)
+                + " (and optionally TRULENS_APP_NAME/TRULENS_APP_VERSION) to run accuracy evals."
+            )
 
     trulens = TruLensClient(settings.trulens)
     langfuse = LangfuseClient(settings.langfuse)

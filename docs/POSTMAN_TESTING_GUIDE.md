@@ -20,7 +20,7 @@ Complete guide for testing AWS API Gateway endpoints and Lambda functions using 
 This guide provides step-by-step instructions for testing the Multi-Agent Orchestrator API endpoints using Postman. It covers:
 
 - Setting up Postman environment
-- Testing standard API endpoints (`/api/v1/query`, `/health`, `/metrics`)
+- Testing standard API endpoints (`/invocations`, `/ping`)
 - Testing Teams webhook endpoint with HMAC signature generation
 - Creating and running Postman collections
 - Advanced testing scenarios
@@ -29,7 +29,7 @@ This guide provides step-by-step instructions for testing the Multi-Agent Orches
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/query` | POST | Process user query through orchestrator |
+| `/invocations` | POST | Process user query through orchestrator |
 | `/api/teams/webhook` | POST | Microsoft Teams webhook endpoint |
 | `/health` | GET | Health check endpoint |
 | `/metrics` | GET | Get orchestrator metrics |
@@ -147,7 +147,7 @@ This guide provides step-by-step instructions for testing the Multi-Agent Orches
 
 2. **Configure Request**
    - **Method**: `POST`
-   - **URL**: `{{API_GATEWAY_URL}}/api/v1/query`
+   - **URL**: `{{API_GATEWAY_URL}}/invocations`
 
 3. **Configure Headers**
    ```
@@ -221,7 +221,7 @@ This guide provides step-by-step instructions for testing the Multi-Agent Orches
 
 2. **Configure Request**
    - **Method**: `POST`
-   - **URL**: `{{API_GATEWAY_URL}}/api/v1/query?agent_id=AGENT_ID&agent_alias_id=ALIAS_ID`
+   - **URL**: `{{API_GATEWAY_URL}}/invocations`
 
 3. **Configure Body** (same as Test 2)
 
@@ -746,7 +746,7 @@ Here's a complete Postman collection you can import:
           "raw": "{\n  \"query\": \"What are the total sales?\",\n  \"session_id\": \"test-123\"\n}"
         },
         "url": {
-          "raw": "{{base_url}}/api/v1/query",
+          "raw": "{{base_url}}/invocations",
           "host": ["{{base_url}}"],
           "path": ["api", "v1", "query"]
         }

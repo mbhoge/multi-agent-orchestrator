@@ -1,0 +1,67 @@
+spec:
+  containers:
+    - name: snowflake-cortex-gateway
+      image: /<DB_NAME>/<SCHEMA_NAME>/<REPOSITORY_NAME>/snowflake-cortex:latest
+      env:
+        SNOWFLAKE_API_HOST: https://<ACCOUNT_IDENTIFIER>.snowflakecomputing.com
+        SNOWFLAKE_CORTEX_AGENTS_DATABASE: <CORTEX_AGENTS_DATABASE>
+        SNOWFLAKE_CORTEX_AGENTS_SCHEMA: <CORTEX_AGENTS_SCHEMA>
+        LANGFUSE_HOST: https://<LANGFUSE_HOST>
+        LANGFUSE_PUBLIC_KEY: <LANGFUSE_PUBLIC_KEY>
+        LANGFUSE_PROJECT_ID: <LANGFUSE_PROJECT_ID>
+      secrets:
+        - snowflakeSecret:
+            objectName: <SNOWFLAKE_AUTH_TOKEN_SECRET_OBJECT>
+            envVarName: SNOWFLAKE_AUTH_TOKEN
+            secretKeyRef: secret_string
+        - snowflakeSecret:
+            objectName: <LANGFUSE_SECRET_KEY_SECRET_OBJECT>
+            envVarName: LANGFUSE_SECRET_KEY
+            secretKeyRef: secret_string
+      readinessProbe:
+        port: 8002
+        path: /health
+
+    - name: langgraph-supervisor
+      image: /<DB_NAME>/<SCHEMA_NAME>/<REPOSITORY_NAME>/langgraph:latest
+      env:
+        # Same-service container networking: call the gateway over localhost.
+        SNOWFLAKE_CORTEX_AGENT_GATEWAY_ENDPOINT: http://localhost:8002
+
+        SNOWFLAKE_ACCOUNT: <SNOWFLAKE_ACCOUNT>
+        SNOWFLAKE_WAREHOUSE: <SNOWFLAKE_WAREHOUSE>
+        SNOWFLAKE_DATABASE: <SNOWFLAKE_DATABASE>
+        SNOWFLAKE_SCHEMA: <SNOWFLAKE_SCHEMA>
+        SNOWFLAKE_ROLE: <SNOWFLAKE_ROLE>
+
+        SNOWFLAKE_CORTEX_LLM_MODEL: <CORTEX_MODEL_NAME>
+        SNOWFLAKE_CORTEX_MODE: connector
+
+        LANGFUSE_HOST: https://<LANGFUSE_HOST>
+        LANGFUSE_PUBLIC_KEY: <LANGFUSE_PUBLIC_KEY>
+        LANGFUSE_PROJECT_ID: <LANGFUSE_PROJECT_ID>
+
+      secrets:
+        - snowflakeSecret:
+            objectName: <SNOWFLAKE_PASSWORD_SECRET_OBJECT>
+            envVarName: SNOWFLAKE_USER
+            secretKeyRef: username
+        - snowflakeSecret:
+            objectName: <SNOWFLAKE_PASSWORD_SECRET_OBJECT>
+            envVarName: SNOWFLAKE_PASSWORD
+            secretKeyRef: password
+        - snowflakeSecret:
+            objectName: <LANGFUSE_SECRET_KEY_SECRET_OBJECT>
+            envVarName: LANGFUSE_SECRET_KEY
+            secretKeyRef: secret_string
+
+      readinessProbe:
+        port: 8001
+        path: /ping
+
+  endpoints:
+    - name: http
+      port: 8001
+      protocol: HTTP
+      public: true
+

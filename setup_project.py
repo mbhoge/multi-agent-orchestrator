@@ -30,8 +30,6 @@ class ProjectSetup:
         directories = [
             # Main package directories
             "aws_agent_core/api",
-            "aws_agent_core/observability",
-            "aws_agent_core/runtime",
             "langgraph/memory",
             "langgraph/observability",
             "langgraph/reasoning",
@@ -90,8 +88,6 @@ class ProjectSetup:
         init_files = [
             "aws_agent_core/__init__.py",
             "aws_agent_core/api/__init__.py",
-            "aws_agent_core/observability/__init__.py",
-            "aws_agent_core/runtime/__init__.py",
             "langgraph/__init__.py",
             "langgraph/memory/__init__.py",
             "langgraph/observability/__init__.py",
@@ -417,15 +413,12 @@ services:
       dockerfile: docker/aws-agent-core/Dockerfile
     container_name: aws-agent-core
     ports:
-      - "8000:8000"
+      - "8080:8080"
     environment:
       - AWS_REGION=${AWS_REGION:-us-east-1}
-      - LANGGRAPH_ENDPOINT=http://langgraph:8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     env_file:
       - .env
-    depends_on:
-      - langgraph
     networks:
       - orchestrator-network
     restart: unless-stopped

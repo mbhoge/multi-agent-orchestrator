@@ -6,6 +6,10 @@
 
 ## 🎯 Complete System Architecture Flow
 
+> **Note:** The legacy API Gateway + Lambda flow has been removed. The current
+> runtime uses the AgentCore-compatible HTTP server (`/invocations`, `/ping`)
+> on port `8080` and invokes the LangGraph supervisor in-process.
+
 ### Flow 1: Direct REST API Request (API Gateway → Lambda)
 
 ```

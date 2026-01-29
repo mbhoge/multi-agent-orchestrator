@@ -11,6 +11,10 @@
 
 ## Architecture Overview
 
+> **Note:** The LangGraph supervisor now runs inside Snowflake Container Services (SPCS) and
+> uses Snowflake Cortex LLMs. AWS AgentCore Runtime invokes the SPCS endpoint over private
+> connectivity.
+
 The Multi-Agent Orchestrator follows a **three-tier microservices architecture** with clear separation of concerns:
 
 ```
